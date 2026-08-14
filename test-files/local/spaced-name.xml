@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Guess-Market xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="GM-EX1-schema.xsd">
+	<GM-events>
+		<GM-event name="  Multi   Spaced   Name  ">
+			<id>7</id>
+			<description>name has runs of spaces</description>
+			<comision type="on-close">0</comision>
+			<GM-options>
+				<GM-option>Alpha</GM-option>
+				<GM-option>Beta</GM-option>
+			</GM-options>
+			<GM-method>
+				<GM-LMSR>
+					<b>200</b>
+				</GM-LMSR>
+			</GM-method>
+		</GM-event>
+	</GM-events>
+</Guess-Market>
