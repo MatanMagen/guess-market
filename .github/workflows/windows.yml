@@ -1,0 +1,136 @@
+name: windows
+
+# The grader runs this on Windows 10 from a plain command prompt, so that is what gets
+# tested here: the jars are built once, then driven through run.bat on a real Windows
+# machine rather than trusting that it works.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Build the three jars
+        shell: bash
+        run: GM_JAVA_HOME="$JAVA_HOME" ./build.sh
+
+      - name: Engine test suite
+        shell: bash
+        run: GM_JAVA_HOME="$JAVA_HOME" ./test.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  windows:
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Show what arrived
+        shell: cmd
+        working-directory: dist
+        run: dir /b && java -version
+
+      - name: Write the keystrokes to feed it
+        shell: bash
+        working-directory: dist
+        run: |
+          # load, list, buy 100 of answer 1 of event 1, close it on answer 1, exit.
+          # The trailing blank line is for the pause at the end of run.bat.
+          printf '1\ntest-files\\multiple.xml\n2\n4\n1\n1\n100\n5\n1\n1\n8\n\n' > keys.txt
+
+      - name: Run it through run.bat
+        shell: cmd
+        working-directory: dist
+        run: run.bat < keys.txt > out.txt 2>&1
+
+      - name: Show the output
+        shell: cmd
+        working-directory: dist
+        run: type out.txt
+
+      - name: Check what it printed
+        shell: bash
+        working-directory: dist
+        run: |
+          fail=0
+          want() {
+            if grep -qF "$1" out.txt; then
+              echo "  ok   $1"
+            else
+              echo "  FAIL missing: $1"
+              fail=1
+            fi
+          }
+          reject() {
+            if grep -qF "$1" out.txt; then
+              echo "  FAIL found: $1"
+              fail=1
+            else
+              echo "  ok   absent: $1"
+            fi
+          }
+
+          want 'G U E S S   M A R K E T'
+          want 'FILE LOADED'
+          want 'Events : 3'
+          want 'Mujtaba is Dead'
+          want 'PURCHASE COMPLETED'
+          want '62.01'
+          want '3.10'
+          want '65.11'
+          want '0.73'
+          want 'EVENT CLOSED'
+          want '<-- WINNER'
+          want 'Goodbye.'
+
+          reject 'Exception'
+          reject 'UnsupportedClassVersionError'
+          reject 'ClassNotFoundException'
+          reject 'NoClassDefFoundError'
+
+          exit $fail
+
+      - name: Reject a bad file and keep going
+        shell: bash
+        working-directory: dist
+        run: |
+          printf '1\ntest-files\\error-2.xml\n1\ntest-files\\error-3.xml\n2\n8\n\n' > bad.txt
+
+      - name: Run the rejection path
+        shell: cmd
+        working-directory: dist
+        run: run.bat < bad.txt > bad-out.txt 2>&1
+
+      - name: Check the rejections
+        shell: bash
+        working-directory: dist
+        run: |
+          cat bad-out.txt
+          fail=0
+          for want in 'FILE REJECTED' 'already used by the event at position 1' '115%' 'Goodbye.'; do
+            grep -qF "$want" bad-out.txt || { echo "FAIL missing: $want"; fail=1; }
+          done
+          grep -q $'\tat ' bad-out.txt && { echo "FAIL printed a stack trace"; fail=1; }
+          exit $fail
