@@ -1,0 +1,21 @@
+build/
+dist/
+out/
+*.class
+*.zip
+
+# local only, macOS/bash
+uitest.sh
+package.sh
+GuessMarket.command
+
+# ships in the submission zip, not here
+packaging/readme.html
+packaging/readme.docx
+
+# course material
+course-materials/
+libs/
+Guess Market v2.docx
+
+.DS_Store
