@@ -14,7 +14,7 @@ BUILD_DIR="$PROJECT_DIR/build"
 TEST_CLASSES="$BUILD_DIR/test-classes"
 SCRATCH="$BUILD_DIR/test-scratch"
 
-BUILD_LOG="$(mktemp -t guess-market-build)"
+BUILD_LOG="$(mktemp -t guess-market-build.XXXXXX)"
 trap 'rm -f "$BUILD_LOG"' EXIT
 "$PROJECT_DIR/build.sh" > "$BUILD_LOG" 2>&1 || { cat "$BUILD_LOG"; exit 1; }
 echo "==> Build ok"
