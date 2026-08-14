@@ -113,7 +113,7 @@ public class GuessMarketConsole {
     private void buyShares() {
         List<EventSummary> active = engine.listActiveEvents();
         out.eventList("ACTIVE EVENTS", active);
-        int eventNumber = selectFrom("event you want to take part in", active.size());
+        int eventNumber = selectFrom("event to take part in", active.size());
         if (eventNumber == ConsoleReader.CANCEL) {
             return;
         }
@@ -141,7 +141,7 @@ public class GuessMarketConsole {
     private void closeEvent() {
         List<EventSummary> active = engine.listActiveEvents();
         out.eventList("ACTIVE EVENTS", active);
-        int eventNumber = selectFrom("event you want to close", active.size());
+        int eventNumber = selectFrom("event to close", active.size());
         if (eventNumber == ConsoleReader.CANCEL) {
             return;
         }
@@ -199,8 +199,8 @@ public class GuessMarketConsole {
     // regardless: it can never rely on a front end having done so.
     private int selectFrom(String what, int itemCount) {
         out.blank();
-        return in.readSelection(" Choose the number of the " + what + " (1-" + itemCount
-                + ", or 0 to go back): ", itemCount);
+        return in.readSelection(" Choose the " + what + " (1-" + itemCount
+                + ", 0 to go back): ", itemCount);
     }
 
     private String currentlyLoadedOrNull() {
