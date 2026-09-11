@@ -4,7 +4,11 @@ import guessmarket.dto.CloseResult;
 import guessmarket.dto.EventState;
 import guessmarket.dto.EventSummary;
 import guessmarket.dto.LoadSummary;
+import guessmarket.dto.OrderResult;
+import guessmarket.dto.OrderSide;
 import guessmarket.dto.PurchaseResult;
+import guessmarket.dto.UserDetails;
+import guessmarket.dto.UserSummary;
 import guessmarket.engine.exception.InvalidFileException;
 
 import java.util.List;
@@ -17,7 +21,9 @@ import java.util.List;
  * unchecked exceptions of {@code guessmarket.engine.exception}, which carry the facts rather than
  * a finished sentence.
  * <p>
- * Every index here is <b>one based</b>, matching what the user sees on screen.
+ * Events are addressed by the id they carry in the file, not by where they happen to sit in a
+ * listing, so a front end that filters or sorts its view cannot address the wrong one. Users are
+ * addressed by name, which the loader has proved unique.
  */
 public interface Engine {
 
@@ -33,40 +39,50 @@ public interface Engine {
 
     String loadedSourceDescription();
 
-    /** Every loaded event, numbered from 1 in file order. */
+    /** Every user, in file order. */
+    List<UserSummary> listUsers();
+
+    /** One user with every event he has taken part in. */
+    UserDetails userDetails(String userName);
+
+    /** Every loaded event, in file order. A front end filters this list itself. */
     List<EventSummary> listEvents();
 
-    /** Only the events that still accept trades, numbered from 1. */
-    List<EventSummary> listActiveEvents();
-
-    /** @param eventNumber a position in {@link #listEvents()}. */
-    EventState eventState(int eventNumber);
-
-    /** @param activeEventNumber a position in {@link #listActiveEvents()}. */
-    EventState activeEventState(int activeEventNumber);
+    EventState eventState(int eventId);
 
     /**
-     * @param activeEventNumber a position in {@link #listActiveEvents()}.
-     * @param outcomeNumber a position in that event's answer listing.
+     * Starts an event, moving the market maker's stake into its account: the subsidy for LMSR, the
+     * initial stock of shares for an order book.
+     *
+     * @throws guessmarket.engine.exception.NotMarketMakerException if somebody else asked.
+     * @throws guessmarket.engine.exception.InsufficientFundsException if he cannot fund it.
      */
-    PurchaseResult buyShares(int activeEventNumber, int outcomeNumber, long quantity);
+    EventState openEvent(int eventId, String userName);
 
     /**
      * Resolves an event on one of its answers and pays the winners.
      *
-     * @param activeEventNumber a position in {@link #listActiveEvents()}.
-     * @param winningOutcomeNumber a position in that event's answer listing.
+     * @param outcomeNumber a position in that event's answer listing, counted from 1.
      */
-    CloseResult closeEvent(int activeEventNumber, int winningOutcomeNumber);
+    CloseResult closeEvent(int eventId, String userName, int outcomeNumber);
+
+    /** What an LMSR purchase would cost right now, without making it. */
+    double quoteLmsrPurchase(int eventId, int outcomeNumber, long quantity);
 
     /**
-     * Writes everything loaded, trade history included, for {@link #restoreState} to pick up later.
+     * Buys shares of an LMSR event for a user.
      *
-     * @param pathWithoutExtension full path and file name, no extension.
-     * @return the full path actually written.
+     * @param outcomeNumber a position in that event's answer listing, counted from 1.
      */
-    String saveState(String pathWithoutExtension);
+    PurchaseResult buyLmsrShares(int eventId, String userName, int outcomeNumber, long quantity);
 
-    /** Replaces whatever is loaded. A failed restore changes nothing. */
-    LoadSummary restoreState(String pathWithoutExtension);
+    /**
+     * Puts an order into one answer's book, matching it against whatever is already resting and
+     * leaving the remainder behind.
+     *
+     * @param outcomeNumber a position in that event's answer listing, counted from 1.
+     * @param price per share, between 0.01 and d minus 0.01.
+     */
+    OrderResult submitOrder(int eventId, String userName, int outcomeNumber,
+                            OrderSide side, long quantity, double price);
 }
