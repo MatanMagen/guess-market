@@ -1,7 +1,8 @@
 package guessmarket.dto;
 
-/** What a purchase cost, and how the event stands afterwards. */
-public record PurchaseResult(String outcomeName,
+/** What an LMSR purchase cost one user, and how the event stands afterwards. */
+public record PurchaseResult(String userName,
+                             String outcomeName,
                              long quantity,
                              double sharesCost,
                              double commissionPaid,

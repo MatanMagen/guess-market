@@ -41,5 +41,32 @@ public enum ProblemKind {
     /** no values */
     MISSING_LMSR,
     /** 0: value found */
-    LIQUIDITY_NOT_POSITIVE
+    LIQUIDITY_NOT_POSITIVE,
+
+    // Added in exercise 2, with users and the order book.
+
+    /** no values */
+    NO_USERS,
+    /** 0: the position in the file */
+    BLANK_USER_NAME,
+    /** 0: the repeated name, 1: the earlier position using it */
+    DUPLICATE_USER_NAME,
+    /** 0: user name, 1: value found */
+    INITIAL_CASH_NOT_POSITIVE,
+    /** 0: user name, 1: the event number referred to */
+    MARKET_MAKER_OF_UNKNOWN_EVENT,
+    /** 0: user name, 1: the event number named twice */
+    MARKET_MAKER_TWICE_OF_SAME_EVENT,
+    /** no values, event scoped */
+    EVENT_WITHOUT_MARKET_MAKER,
+    /** 0: the users claiming it, comma separated; event scoped */
+    EVENT_WITH_SEVERAL_MARKET_MAKERS,
+    /** no values */
+    MISSING_ORDER_BOOK,
+    /** 0: value found */
+    BASE_PRICE_NOT_POSITIVE,
+    /** 0: value found */
+    INITIAL_INVESTMENT_NEGATIVE,
+    /** 0: value found */
+    UNKNOWN_MINT_FLAG
 }

@@ -10,7 +10,10 @@ public record EventSummary(int displayNumber,
                            int commissionPercent,
                            CommissionPolicy commissionType,
                            List<String> outcomeNames,
-                           EventLifecycle status) {
+                           EventLifecycle status,
+                           MarketMethod method,
+                           String marketMakerName,
+                           double accountBalance) {
 
     public EventSummary {
         outcomeNames = List.copyOf(outcomeNames);
