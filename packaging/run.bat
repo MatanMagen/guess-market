@@ -7,6 +7,7 @@ set GM_FX=lib\javafx
 
 java --module-path "%GM_FX%" --add-modules javafx.controls ^
      --enable-native-access=javafx.graphics ^
+     --sun-misc-unsafe-memory-access=allow ^
      -cp "%GM_CP%" guessmarket.ui.GuessMarketApp
 
 if errorlevel 1 (

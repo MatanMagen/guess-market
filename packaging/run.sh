@@ -17,5 +17,6 @@ fi
 exec "$JAVA_HOME/bin/java" \
   --module-path "$JAVAFX" --add-modules javafx.controls \
   --enable-native-access=javafx.graphics \
+  --sun-misc-unsafe-memory-access=allow \
   -cp "$HERE/guess-market-ui.jar:$HERE/guess-market-engine.jar:$HERE/guess-market-dto.jar:$HERE/lib/*" \
   guessmarket.ui.GuessMarketApp "$@"
