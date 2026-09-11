@@ -1,0 +1,94 @@
+# Temporary: proves the submission works on the platform the grader uses.
+# Deleted once it has passed, since it is not part of the exercise.
+#
+# A hosted Windows runner has no display, so JavaFX cannot bring up a graphics pipeline there and
+# the window itself cannot be checked. What can be checked is everything that causes a submission
+# to fail before it ever draws: the engine on Windows paths, and whether run.bat resolves every
+# jar, module and native library. So this asserts the launch gets as far as the graphics device
+# and no further back than that.
+name: windows check
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Build
+        run: GM_JAVA_HOME="$JAVA_HOME" ./build.sh
+      - name: Engine tests
+        run: GM_JAVA_HOME="$JAVA_HOME" ./test.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  windows:
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: The engine passes its own tests on Windows
+        shell: cmd
+        run: |
+          javac -encoding UTF-8 -cp "dist\guess-market-engine.jar;dist\guess-market-dto.jar;lib\*" -d win-test-classes tests\src\guessmarket\tests\*.java || exit /b 1
+          java -cp "win-test-classes;dist\guess-market-engine.jar;dist\guess-market-dto.jar;dist\lib\*" guessmarket.tests.Ex2Tests test-files || exit /b 1
+
+      - name: run.bat resolves every jar, module and native library
+        shell: pwsh
+        run: |
+          Set-Location dist
+          $out = "$PWD\launch.txt"
+          $p = Start-Process -FilePath "cmd.exe" -ArgumentList "/c","run.bat" `
+                 -RedirectStandardOutput $out -RedirectStandardError "$PWD\launch-err.txt" `
+                 -PassThru -NoNewWindow
+          Start-Sleep -Seconds 25
+          $alive = -not $p.HasExited
+          if ($alive) { Stop-Process -Id $p.Id -Force }
+          Get-Process java -ErrorAction SilentlyContinue | Stop-Process -Force
+
+          $text = (Get-Content $out, "$PWD\launch-err.txt" -ErrorAction SilentlyContinue) -join "`n"
+          Write-Host "---- launch output ----"
+          Write-Host $text
+
+          $fatal = @(
+            'ClassNotFoundException',
+            'NoClassDefFoundError',
+            'UnsatisfiedLinkError',
+            'module not found',
+            'Could not find or load main class',
+            'FindException',
+            'Error opening zip file'
+          )
+          foreach ($needle in $fatal) {
+            if ($text -match [regex]::Escape($needle)) {
+              throw "run.bat failed to resolve something: $needle"
+            }
+          }
+
+          if ($alive) {
+            Write-Host "run.bat is still running after 25s - the window came up."
+            exit 0
+          }
+          if ($text -match 'Graphics Device initialization failed') {
+            Write-Host "Everything resolved; only the graphics pipeline is missing, which is this runner having no display."
+            exit 0
+          }
+          throw "run.bat exited for a reason that is not the missing display"
