@@ -1,18 +1,21 @@
 #!/bin/bash
-# Guess Market - Exercise 1 - console application.
-# The same launch as run.bat, for developing on macOS or Linux.
+# Guess Market, exercise 2. Starts the application on macOS or Linux.
 #
-# Picks the Java to run with in this order: GM_JAVA_HOME, then JAVA_HOME, then whatever
-# "java" is on the PATH. The exercise requires Java 25.
+# The folder next to these jars holds the Windows JavaFX build, which is what the submission
+# needs, so a local run points at a JavaFX SDK for this machine instead. Set GM_JAVAFX to it.
 set -euo pipefail
-cd "$(dirname "${BASH_SOURCE[0]}")"
 
-if [ -n "${GM_JAVA_HOME:-}" ]; then
-  JAVA_BIN="$GM_JAVA_HOME/bin/java"
-elif [ -n "${JAVA_HOME:-}" ]; then
-  JAVA_BIN="$JAVA_HOME/bin/java"
-else
-  JAVA_BIN="java"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+JAVA_HOME="${GM_JAVA_HOME:-$HOME/jdks/jdk-25.0.4+7/Contents/Home}"
+JAVAFX="${GM_JAVAFX:-$HERE/../course-materials/javafx-mac/lib}"
+
+if [ ! -f "$JAVAFX/javafx.controls.jar" ]; then
+  echo "ERROR: no JavaFX SDK for this machine at $JAVAFX (set GM_JAVAFX)" >&2
+  exit 1
 fi
 
-exec "$JAVA_BIN" -cp "guess-market-ui.jar:guess-market-engine.jar:guess-market-dto.jar:lib/*" guessmarket.ui.ConsoleApp
+exec "$JAVA_HOME/bin/java" \
+  --module-path "$JAVAFX" --add-modules javafx.controls \
+  --enable-native-access=javafx.graphics \
+  -cp "$HERE/guess-market-ui.jar:$HERE/guess-market-engine.jar:$HERE/guess-market-dto.jar:$HERE/lib/*" \
+  guessmarket.ui.GuessMarketApp "$@"

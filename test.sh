@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds and runs the exercise 1 test suite.
+# Builds and runs the exercise 2 test suite.
 #
 #   ./test.sh
 #
@@ -32,4 +32,4 @@ find "$PROJECT_DIR/tests/src" -name '*.java' > "$BUILD_DIR/test-sources.txt"
 echo "==> Running tests"
 "$JAVA_HOME/bin/java" \
   -cp "$TEST_CLASSES:$PROJECT_DIR/dist/guess-market-engine.jar:$PROJECT_DIR/dist/guess-market-dto.jar:$PROJECT_DIR/lib/*" \
-  guessmarket.tests.Ex1Tests "$PROJECT_DIR/test-files" "$SCRATCH"
+  guessmarket.tests.Ex2Tests "$PROJECT_DIR/test-files"

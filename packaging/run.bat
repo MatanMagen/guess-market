@@ -1,29 +1,18 @@
 @echo off
-REM ---------------------------------------------------------------------------
-REM  Guess Market - Exercise 1 - console application
-REM
-REM  Double click this file, or run it from a command prompt, to start the
-REM  application. It must stay in the same folder as the two jars and the lib
-REM  folder that came with it.
-REM
-REM  Requires Java 25 on the PATH.
-REM ---------------------------------------------------------------------------
-setlocal
-
+REM Guess Market, exercise 2. Starts the JavaFX application from this folder.
 cd /d "%~dp0"
 
-java -version >nul 2>&1
+set GM_CP=guess-market-ui.jar;guess-market-engine.jar;guess-market-dto.jar;lib\*
+set GM_FX=lib\javafx
+
+java --module-path "%GM_FX%" --add-modules javafx.controls ^
+     --enable-native-access=javafx.graphics ^
+     -cp "%GM_CP%" guessmarket.ui.GuessMarketApp
+
 if errorlevel 1 (
     echo.
-    echo  Java could not be found on this machine.
-    echo  Please install Java 25 and make sure "java" runs from a command prompt.
+    echo The application did not start. Java 25 or newer must be on the PATH.
+    echo Check with: java -version
     echo.
     pause
-    exit /b 1
 )
-
-java -cp "guess-market-ui.jar;guess-market-engine.jar;guess-market-dto.jar;lib\*" guessmarket.ui.ConsoleApp
-
-echo.
-pause
-endlocal
