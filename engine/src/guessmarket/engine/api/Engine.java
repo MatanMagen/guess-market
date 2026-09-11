@@ -4,6 +4,7 @@ import guessmarket.dto.CloseResult;
 import guessmarket.dto.EventState;
 import guessmarket.dto.EventSummary;
 import guessmarket.dto.LoadSummary;
+import guessmarket.dto.NewEvent;
 import guessmarket.dto.OrderResult;
 import guessmarket.dto.OrderSide;
 import guessmarket.dto.PurchaseResult;
@@ -75,6 +76,15 @@ public interface Engine {
      * @param outcomeNumber a position in that event's answer listing, counted from 1.
      */
     PurchaseResult buyLmsrShares(int eventId, String userName, int outcomeNumber, long quantity);
+
+    /**
+     * Brings a new event into being, with the user who asked for it as its market maker. It is
+     * checked against the same rules a loaded file has to satisfy, and once accepted it behaves
+     * like any other event: not started, with an empty account, waiting for its maker to open it.
+     *
+     * @throws guessmarket.engine.exception.InvalidEventException carrying every fault found.
+     */
+    EventState createEvent(NewEvent request);
 
     /**
      * Puts an order into one answer's book, matching it against whatever is already resting and

@@ -6,6 +6,7 @@ import guessmarket.engine.exception.EventNotActiveException;
 import guessmarket.engine.exception.GuessMarketException;
 import guessmarket.engine.exception.InsufficientFundsException;
 import guessmarket.engine.exception.InsufficientSharesException;
+import guessmarket.engine.exception.InvalidEventException;
 import guessmarket.engine.exception.InvalidFileException;
 import guessmarket.engine.exception.InvalidPriceException;
 import guessmarket.engine.exception.InvalidQuantityException;
@@ -17,6 +18,8 @@ import guessmarket.engine.exception.NoSuchUserException;
 import guessmarket.engine.exception.NotMarketMakerException;
 import guessmarket.engine.exception.UserBlockedException;
 import guessmarket.engine.exception.WrongMarketMethodException;
+
+import java.util.List;
 
 /**
  * Turns the facts the engine reports into English. The engine says which fault occurred and the
@@ -68,13 +71,18 @@ public final class Messages {
             case WrongMarketMethodException e -> "Event '" + e.eventName() + "' is traded by "
                     + Format.method(e.actual()) + ", so that action does not apply to it.";
             case InvalidFileException e -> describeFile(e);
+            case InvalidEventException e -> describeProblems("The event could not be created:", e.problems());
             default -> failure.getMessage();
         };
     }
 
     private static String describeFile(InvalidFileException failure) {
-        StringBuilder text = new StringBuilder("The file could not be loaded:\n");
-        for (FileProblem problem : failure.problems()) {
+        return describeProblems("The file could not be loaded:", failure.problems());
+    }
+
+    private static String describeProblems(String heading, List<FileProblem> problems) {
+        StringBuilder text = new StringBuilder(heading).append("\n");
+        for (FileProblem problem : problems) {
             text.append("\n  • ").append(describeProblem(problem));
         }
         return text.toString();
@@ -127,6 +135,7 @@ public final class Messages {
             case INITIAL_INVESTMENT_NEGATIVE -> "the initial investment cannot be negative, and it is "
                     + problem.value(0) + ".";
             case UNKNOWN_MINT_FLAG -> "'" + problem.value(0) + "' is not a yes or no for allow-mint.";
+            case DUPLICATE_EVENT_NAME -> "there is already an event called '" + problem.value(0) + "'.";
         };
     }
 }

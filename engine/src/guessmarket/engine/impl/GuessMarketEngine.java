@@ -7,9 +7,11 @@ import guessmarket.dto.EventState;
 import guessmarket.dto.EventSummary;
 import guessmarket.dto.FillRecord;
 import guessmarket.dto.HoldingState;
+import guessmarket.dto.FileProblem;
 import guessmarket.dto.LmsrDetails;
 import guessmarket.dto.LoadSummary;
 import guessmarket.dto.MarketMethod;
+import guessmarket.dto.NewEvent;
 import guessmarket.dto.OrderBookDetails;
 import guessmarket.dto.OrderResult;
 import guessmarket.dto.OrderSide;
@@ -17,6 +19,7 @@ import guessmarket.dto.OrderView;
 import guessmarket.dto.OutcomeBook;
 import guessmarket.dto.OutcomeState;
 import guessmarket.dto.ParticipantState;
+import guessmarket.dto.ProblemKind;
 import guessmarket.dto.PurchaseResult;
 import guessmarket.dto.TradeRecord;
 import guessmarket.dto.UserDetails;
@@ -27,6 +30,7 @@ import guessmarket.engine.exception.EventAlreadyStartedException;
 import guessmarket.engine.exception.EventNotActiveException;
 import guessmarket.engine.exception.InsufficientFundsException;
 import guessmarket.engine.exception.InsufficientSharesException;
+import guessmarket.engine.exception.InvalidEventException;
 import guessmarket.engine.exception.InvalidPriceException;
 import guessmarket.engine.exception.InvalidQuantityException;
 import guessmarket.engine.exception.NoFileLoadedException;
@@ -67,6 +71,9 @@ import java.util.List;
 public class GuessMarketEngine implements Engine {
 
     private static final long MINIMUM_QUANTITY = 1L;
+    private static final int MIN_COMMISSION_PERCENT = 0;
+    private static final int MAX_COMMISSION_PERCENT = 90;
+    private static final int REQUIRED_OUTCOME_COUNT = 2;
 
     private final XmlEventLoader loader = new XmlEventLoader();
     private MarketState state;
@@ -130,6 +137,92 @@ public class GuessMarketEngine implements Engine {
     public EventState eventState(int eventId) {
         requireLoaded();
         return toState(requireEvent(eventId));
+    }
+
+    @Override
+    public EventState createEvent(NewEvent request) {
+        requireLoaded();
+        User creator = requireActingUser(request.creatorName());
+
+        List<FileProblem> problems = checkNewEvent(request);
+        if (!problems.isEmpty()) {
+            throw new InvalidEventException(problems);
+        }
+
+        int id = state.nextEventId();
+        String name = request.name().trim();
+        String description = request.description() == null ? "" : request.description().trim();
+        CommissionType commissionType = request.commissionType() == CommissionPolicy.ON_PURCHASE
+                ? CommissionType.ON_PURCHASE
+                : CommissionType.ON_CLOSE;
+        List<String> outcomeNames = trimmedAll(request.outcomeNames());
+
+        Event event = request.method() == MarketMethod.LMSR
+                ? new LmsrEvent(id, name, description, request.commissionPercent(), commissionType,
+                        outcomeNames, creator.name(), request.liquidity())
+                : new OrderBookEvent(id, name, description, request.commissionPercent(), commissionType,
+                        outcomeNames, creator.name(), request.basePrice(),
+                        request.mintAllowed(), request.initialInvestment());
+        state.addEvent(event);
+        return toState(event);
+    }
+
+    /** The same rules the loader applies, because where a definition came from does not change them. */
+    private List<FileProblem> checkNewEvent(NewEvent request) {
+        List<FileProblem> problems = new ArrayList<>();
+        String name = request.name() == null ? "" : request.name().trim();
+
+        if (name.isEmpty()) {
+            problems.add(FileProblem.ofFile(ProblemKind.BLANK_EVENT_NAME));
+        } else if (state.eventByName(name) != null) {
+            problems.add(FileProblem.ofFile(ProblemKind.DUPLICATE_EVENT_NAME, name));
+        }
+        if (request.commissionPercent() < MIN_COMMISSION_PERCENT
+                || request.commissionPercent() > MAX_COMMISSION_PERCENT) {
+            problems.add(FileProblem.ofFile(ProblemKind.COMMISSION_OUT_OF_RANGE,
+                    String.valueOf(request.commissionPercent()),
+                    String.valueOf(MIN_COMMISSION_PERCENT), String.valueOf(MAX_COMMISSION_PERCENT)));
+        }
+
+        List<String> answers = trimmedAll(request.outcomeNames());
+        if (answers.size() != REQUIRED_OUTCOME_COUNT) {
+            problems.add(FileProblem.ofFile(ProblemKind.WRONG_ANSWER_COUNT,
+                    String.valueOf(answers.size()), String.valueOf(REQUIRED_OUTCOME_COUNT)));
+        }
+        for (int i = 0; i < answers.size(); i++) {
+            if (answers.get(i).isEmpty()) {
+                problems.add(FileProblem.ofFile(ProblemKind.BLANK_ANSWER, String.valueOf(i + 1)));
+            }
+        }
+        if (answers.size() == REQUIRED_OUTCOME_COUNT && !answers.get(0).isEmpty()
+                && answers.get(0).equalsIgnoreCase(answers.get(1))) {
+            problems.add(FileProblem.ofFile(ProblemKind.DUPLICATE_ANSWER, answers.get(0)));
+        }
+
+        if (request.method() == MarketMethod.LMSR) {
+            if (request.liquidity() <= 0) {
+                problems.add(FileProblem.ofFile(ProblemKind.LIQUIDITY_NOT_POSITIVE,
+                        String.valueOf(request.liquidity())));
+            }
+        } else {
+            if (request.basePrice() <= 0) {
+                problems.add(FileProblem.ofFile(ProblemKind.BASE_PRICE_NOT_POSITIVE,
+                        String.valueOf(request.basePrice())));
+            }
+            if (request.initialInvestment() < 0) {
+                problems.add(FileProblem.ofFile(ProblemKind.INITIAL_INVESTMENT_NEGATIVE,
+                        String.valueOf(request.initialInvestment())));
+            }
+        }
+        return problems;
+    }
+
+    private List<String> trimmedAll(List<String> values) {
+        List<String> trimmed = new ArrayList<>();
+        for (String value : values) {
+            trimmed.add(value == null ? "" : value.trim());
+        }
+        return trimmed;
     }
 
     @Override

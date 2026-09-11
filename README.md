@@ -9,7 +9,7 @@ Rolling project across four exercises. The engine is extended each time rather t
 | Exercise | Front end | Status |
 |---|---|---|
 | 1 | Console | done |
-| 2 | JavaFX, adds Order Book trading and multiple users | done |
+| 2 | JavaFX, adds Order Book trading and multiple users | done, with bonus 4 |
 | 3 | Client / server | not started |
 | 4 | Web client (bonus) | not started |
 
@@ -86,12 +86,19 @@ to the market maker.
 ./test.sh
 ```
 
-87 checks. The LMSR figures were worked out from the exercise's own appendix, and the order book
+94 checks. The LMSR figures were worked out from the exercise's own appendix, and the order book
 figures come from replaying the supplied `clob_simulation.html` through its own ledger rather
 than from this code, so a failure means the implementation disagrees with the exercise. The
 whole simulator scenario is replayed in both commission modes and every final balance is matched
 to within 1e-9. Faults are checked by exception type and problem kind, never by the wording of a
 message — the engine produces no wording.
+
+## Bonus
+
+Bonus 4, creating a new event, is implemented: any user can build an event from nothing through a
+form on the events screen and becomes its market maker. The engine checks it against exactly the
+rules a loaded file has to satisfy and reports failures with the same problem records, since where a
+definition came from does not change what makes it sound.
 
 ## Third party
 

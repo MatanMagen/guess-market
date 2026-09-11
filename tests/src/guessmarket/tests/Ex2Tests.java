@@ -4,7 +4,9 @@ import guessmarket.dto.CloseResult;
 import guessmarket.dto.EventLifecycle;
 import guessmarket.dto.EventState;
 import guessmarket.dto.FillKind;
+import guessmarket.dto.CommissionPolicy;
 import guessmarket.dto.MarketMethod;
+import guessmarket.dto.NewEvent;
 import guessmarket.dto.OrderResult;
 import guessmarket.dto.OrderSide;
 import guessmarket.dto.OutcomeBook;
@@ -15,6 +17,7 @@ import guessmarket.engine.exception.EventAlreadyStartedException;
 import guessmarket.engine.exception.EventNotActiveException;
 import guessmarket.engine.exception.InsufficientFundsException;
 import guessmarket.engine.exception.InsufficientSharesException;
+import guessmarket.engine.exception.InvalidEventException;
 import guessmarket.engine.exception.InvalidFileException;
 import guessmarket.engine.exception.InvalidPriceException;
 import guessmarket.engine.exception.InvalidQuantityException;
@@ -24,6 +27,7 @@ import guessmarket.engine.exception.UserBlockedException;
 import guessmarket.engine.impl.GuessMarketEngine;
 
 import java.nio.file.Path;
+import java.util.List;
 
 import static guessmarket.tests.TestSupport.assertClose;
 import static guessmarket.tests.TestSupport.assertEquals;
@@ -70,6 +74,7 @@ public final class Ex2Tests {
         orderBookAgainstTheSimulator(true);
         orderBookRules();
         userRules();
+        creatingEvents();
         return support.report();
     }
 
@@ -600,6 +605,74 @@ public final class Ex2Tests {
             var trades = engine.userDetails("Menash").participations().get(0).lmsrTrades();
             assertEquals("two", 2, trades.size());
             assertEquals("newest first", 7L, trades.get(0).quantity());
+        });
+    }
+
+    // ---------- bonus: creating an event ----------
+
+    private void creatingEvents() {
+        support.group("bonus: a user creates an event of his own");
+
+        support.check("the creator becomes its market maker", () -> {
+            Engine engine = loaded("small.xml");
+            var state = engine.createEvent(NewEvent.lmsr("Menash", "Will it snow ?", "In Tel Aviv",
+                    7, CommissionPolicy.ON_CLOSE, List.of("Yes", "No"), 50));
+            assertEquals("maker", "Menash", state.summary().marketMakerName());
+            assertTrue("not started", state.summary().status() == EventLifecycle.NOT_STARTED);
+            assertEquals("empty account", 0L, (long) state.summary().accountBalance());
+        });
+
+        support.check("it takes a number no loaded event is using", () -> {
+            Engine engine = loaded("multiple.xml");
+            var state = engine.createEvent(NewEvent.lmsr("Menash", "Brand new", "",
+                    0, CommissionPolicy.ON_CLOSE, List.of("Yes", "No"), 50));
+            assertEquals("id", 5, state.summary().id());
+            assertEquals("events", 5, engine.listEvents().size());
+        });
+
+        support.check("it then behaves like any other event", () -> {
+            Engine engine = loaded("small.xml");
+            int id = engine.createEvent(NewEvent.orderBook("Avrum", "Home made book", "",
+                    10, CommissionPolicy.ON_PURCHASE, List.of("Yes", "No"), 1, true, 40)).summary().id();
+            engine.openEvent(id, "Avrum");
+            assertClose("initial stock", 40.0d, engine.eventState(id).summary().accountBalance());
+            engine.submitOrder(id, "Menash", 1, OrderSide.BUY, 5, 0.30);
+            assertEquals("a bid rests", 1,
+                    engine.eventState(id).orderBook().books().get(0).bids().size());
+        });
+
+        support.check("somebody else cannot open it", () -> {
+            Engine engine = loaded("small.xml");
+            int id = engine.createEvent(NewEvent.lmsr("Menash", "His own", "",
+                    5, CommissionPolicy.ON_CLOSE, List.of("Yes", "No"), 20)).summary().id();
+            assertThrows("not his", NotMarketMakerException.class, () -> engine.openEvent(id, "Avrum"));
+        });
+
+        support.check("the same rules a file has to satisfy still apply", () -> {
+            Engine engine = loaded("small.xml");
+            InvalidEventException thrown = assertThrows("bad", InvalidEventException.class,
+                    () -> engine.createEvent(NewEvent.lmsr("Menash", "  ", "",
+                            95, CommissionPolicy.ON_CLOSE, List.of("Yes", "Yes"), 0)));
+            assertKinds("problems", thrown.problems(),
+                    ProblemKind.BLANK_EVENT_NAME, ProblemKind.COMMISSION_OUT_OF_RANGE,
+                    ProblemKind.DUPLICATE_ANSWER, ProblemKind.LIQUIDITY_NOT_POSITIVE);
+        });
+
+        support.check("a name already in use is refused", () -> {
+            Engine engine = loaded("small.xml");
+            InvalidEventException thrown = assertThrows("taken", InvalidEventException.class,
+                    () -> engine.createEvent(NewEvent.lmsr("Menash", "Mujtaba is Dead", "",
+                            5, CommissionPolicy.ON_CLOSE, List.of("Yes", "No"), 20)));
+            assertKinds("problems", thrown.problems(), ProblemKind.DUPLICATE_EVENT_NAME);
+        });
+
+        support.check("a blocked user cannot create one", () -> {
+            Engine engine = loaded("small.xml");
+            engine.openEvent(1, "Tikva");
+            engine.buyLmsrShares(1, "Menash", YES, 1000);
+            assertThrows("blocked", UserBlockedException.class,
+                    () -> engine.createEvent(NewEvent.lmsr("Menash", "Too late", "",
+                            5, CommissionPolicy.ON_CLOSE, List.of("Yes", "No"), 20)));
         });
     }
 

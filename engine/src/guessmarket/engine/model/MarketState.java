@@ -50,6 +50,20 @@ public class MarketState implements Serializable {
         return users.get(name);
     }
 
+    /** Adds an event somebody built by hand. Everything else about it works exactly as if it had been loaded. */
+    public void addEvent(Event event) {
+        events.add(event);
+    }
+
+    /** One past the highest number in use, so a new event cannot collide with a loaded one. */
+    public int nextEventId() {
+        int highest = 0;
+        for (Event event : events) {
+            highest = Math.max(highest, event.id());
+        }
+        return highest + 1;
+    }
+
     public Event eventById(int id) {
         for (Event event : events) {
             if (event.id() == id) {

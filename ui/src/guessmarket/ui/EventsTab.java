@@ -4,11 +4,14 @@ import guessmarket.dto.CommissionPolicy;
 import guessmarket.dto.EventLifecycle;
 import guessmarket.dto.EventSummary;
 import guessmarket.dto.MarketMethod;
+import guessmarket.dto.NewEvent;
+import guessmarket.engine.exception.GuessMarketException;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
+import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.TableView;
@@ -77,12 +80,43 @@ public final class EventsTab extends SplitPane {
         VBox left = new VBox(8);
         left.setPadding(new Insets(10));
         left.getChildren().add(filterLine());
+        left.getChildren().add(newEventButton());
         left.getChildren().add(table);
         left.setMinWidth(320);
 
         getItems().add(left);
         getItems().add(detail);
         setDividerPositions(0.46);
+    }
+
+    /** Bonus: anybody can bring an event into being and becomes its market maker. */
+    private Node newEventButton() {
+        Button create = new Button("New event...");
+        create.setOnAction(event -> {
+            String creator = context.actingUser();
+            if (creator == null) {
+                Dialogs.failure(getScene().getWindow(), "New event",
+                        "Choose who you are acting as first: he will be its market maker.");
+                return;
+            }
+            new NewEventDialog(getScene().getWindow(), creator).showAndWait().ifPresent(this::create);
+        });
+        return create;
+    }
+
+    private void create(NewEvent request) {
+        try {
+            int id = context.engine().createEvent(request).summary().id();
+            context.refreshAll();
+            for (EventSummary summary : shown) {
+                if (summary.id() == id) {
+                    table.getSelectionModel().select(summary);
+                    break;
+                }
+            }
+        } catch (GuessMarketException failure) {
+            Dialogs.failure(getScene().getWindow(), "New event", failure);
+        }
     }
 
     private Node filterLine() {

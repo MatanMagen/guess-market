@@ -68,5 +68,10 @@ public enum ProblemKind {
     /** 0: value found */
     INITIAL_INVESTMENT_NEGATIVE,
     /** 0: value found */
-    UNKNOWN_MINT_FLAG
+    UNKNOWN_MINT_FLAG,
+
+    // Only an event built by hand can hit this one: a file is allowed to repeat a name.
+
+    /** 0: the repeated name */
+    DUPLICATE_EVENT_NAME
 }
