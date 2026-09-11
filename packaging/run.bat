@@ -11,8 +11,8 @@ java --module-path "%GM_FX%" --add-modules javafx.controls ^
 
 if errorlevel 1 (
     echo.
-    echo The application did not start. Java 25 or newer must be on the PATH.
-    echo Check with: java -version
+    echo The application did not start.
+    echo Java 25 or newer must be on the PATH: check with  java -version
     echo.
     pause
 )
