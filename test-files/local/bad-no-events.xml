@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Guess-Market xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="GM-EX1-schema.xsd">
+<Guess-Market xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="GM-EX2-Schema.xsd">
 	<GM-events/>
+	<GM-users>
+		<GM-user name="Tikva">
+			<initial-cash>1000</initial-cash>
+			<GM-market-maker>
+				<event id="1"/>
+			</GM-market-maker>
+		</GM-user>
+	</GM-users>
 </Guess-Market>
