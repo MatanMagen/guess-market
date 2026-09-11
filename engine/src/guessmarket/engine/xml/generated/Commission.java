@@ -43,8 +43,8 @@ import jakarta.xml.bind.annotation.XmlValue;
 @XmlType(name = "", propOrder = {
     "value"
 })
-@XmlRootElement(name = "comision")
-public class Comision {
+@XmlRootElement(name = "commission")
+public class Commission {
 
     @XmlValue
     protected int value;

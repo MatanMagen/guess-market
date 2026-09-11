@@ -23,9 +23,10 @@ import jakarta.xml.bind.annotation.XmlType;
  * <complexType>
  *   <complexContent>
  *     <restriction base="{http://www.w3.org/2001/XMLSchema}anyType">
- *       <sequence>
+ *       <choice>
  *         <element ref="{}GM-LMSR"/>
- *       </sequence>
+ *         <element ref="{}GM-order-book"/>
+ *       </choice>
  *     </restriction>
  *   </complexContent>
  * </complexType>
@@ -35,13 +36,16 @@ import jakarta.xml.bind.annotation.XmlType;
  */
 @XmlAccessorType(XmlAccessType.FIELD)
 @XmlType(name = "", propOrder = {
-    "gmlmsr"
+    "gmlmsr",
+    "gmOrderBook"
 })
 @XmlRootElement(name = "GM-method")
 public class GMMethod {
 
-    @XmlElement(name = "GM-LMSR", required = true)
+    @XmlElement(name = "GM-LMSR")
     protected GMLMSR gmlmsr;
+    @XmlElement(name = "GM-order-book")
+    protected GMOrderBook gmOrderBook;
 
     /**
      * Gets the value of the gmlmsr property.
@@ -65,6 +69,30 @@ public class GMMethod {
      */
     public void setGMLMSR(GMLMSR value) {
         this.gmlmsr = value;
+    }
+
+    /**
+     * Gets the value of the gmOrderBook property.
+     * 
+     * @return
+     *     possible object is
+     *     {@link GMOrderBook }
+     *     
+     */
+    public GMOrderBook getGMOrderBook() {
+        return gmOrderBook;
+    }
+
+    /**
+     * Sets the value of the gmOrderBook property.
+     * 
+     * @param value
+     *     allowed object is
+     *     {@link GMOrderBook }
+     *     
+     */
+    public void setGMOrderBook(GMOrderBook value) {
+        this.gmOrderBook = value;
     }
 
 }

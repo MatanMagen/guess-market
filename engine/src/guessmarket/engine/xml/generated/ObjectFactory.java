@@ -30,6 +30,7 @@ import jakarta.xml.bind.annotation.XmlRegistry;
 @XmlRegistry
 public class ObjectFactory {
 
+    private static final QName _InitialCash_QNAME = new QName("", "initial-cash");
     private static final QName _Id_QNAME = new QName("", "id");
     private static final QName _Description_QNAME = new QName("", "description");
     private static final QName _B_QNAME = new QName("", "b");
@@ -43,13 +44,23 @@ public class ObjectFactory {
     }
 
     /**
-     * Create an instance of {@link Comision }
+     * Create an instance of {@link Event }
      * 
      * @return
-     *     the new instance of {@link Comision }
+     *     the new instance of {@link Event }
      */
-    public Comision createComision() {
-        return new Comision();
+    public Event createEvent() {
+        return new Event();
+    }
+
+    /**
+     * Create an instance of {@link Commission }
+     * 
+     * @return
+     *     the new instance of {@link Commission }
+     */
+    public Commission createCommission() {
+        return new Commission();
     }
 
     /**
@@ -110,6 +121,59 @@ public class ObjectFactory {
      */
     public GMLMSR createGMLMSR() {
         return new GMLMSR();
+    }
+
+    /**
+     * Create an instance of {@link GMOrderBook }
+     * 
+     * @return
+     *     the new instance of {@link GMOrderBook }
+     */
+    public GMOrderBook createGMOrderBook() {
+        return new GMOrderBook();
+    }
+
+    /**
+     * Create an instance of {@link GMUsers }
+     * 
+     * @return
+     *     the new instance of {@link GMUsers }
+     */
+    public GMUsers createGMUsers() {
+        return new GMUsers();
+    }
+
+    /**
+     * Create an instance of {@link GMUser }
+     * 
+     * @return
+     *     the new instance of {@link GMUser }
+     */
+    public GMUser createGMUser() {
+        return new GMUser();
+    }
+
+    /**
+     * Create an instance of {@link GMMarketMaker }
+     * 
+     * @return
+     *     the new instance of {@link GMMarketMaker }
+     */
+    public GMMarketMaker createGMMarketMaker() {
+        return new GMMarketMaker();
+    }
+
+    /**
+     * Create an instance of {@link JAXBElement }{@code <}{@link Integer }{@code >}
+     * 
+     * @param value
+     *     Java instance representing xml element's value.
+     * @return
+     *     the new instance of {@link JAXBElement }{@code <}{@link Integer }{@code >}
+     */
+    @XmlElementDecl(namespace = "", name = "initial-cash")
+    public JAXBElement<Integer> createInitialCash(Integer value) {
+        return new JAXBElement<>(_InitialCash_QNAME, Integer.class, null, value);
     }
 
     /**
