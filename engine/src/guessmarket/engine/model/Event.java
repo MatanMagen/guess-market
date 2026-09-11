@@ -3,18 +3,23 @@ package guessmarket.engine.model;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
- * One binary event traded with LMSR. Owns its answers, its pricing, its money and its history, and
- * all of it changes only through {@link #buy} and {@link #close}.
- * <h2>Where the money sits</h2>
- * The account is the pot from appendix A: it opens holding the subsidy C(0,0), grows with every
- * purchase and commission, and shrinks when the winners are paid. Since the subsidy came out of the
- * market maker's own pocket, the figure that says whether he gained or lost is
- * {@link #marketMakerNetResult()}, and that is the one that can be negative.
+ * What every event has regardless of how it is traded: its description, its answers, its own
+ * money, its market maker, who is taking part and what they hold.
+ * <p>
+ * An event is loaded {@link EventStatus#NOT_STARTED} with an empty account. Opening it is what
+ * moves the market maker's money in — the subsidy for LMSR, the initial share purchase for an
+ * order book — so the two subclasses decide what opening costs and what closing pays out.
+ * <p>
+ * Commission always ends up in the market maker's own pocket, never in the event's account.
  */
-public class Event implements Serializable {
+public abstract class Event implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
@@ -25,39 +30,43 @@ public class Event implements Serializable {
     private final CommissionType commissionType;
     /** ArrayList rather than List so the field is provably serializable. */
     private final ArrayList<Outcome> outcomes;
-    private final LmsrMarket market;
     private final Account account;
-    /** ArrayList rather than List so the field is provably serializable. */
-    private final ArrayList<Trade> trades;
-    private final double openingSubsidy;
+    private final String marketMakerName;
+
+    /** Per user, how many shares of each answer he holds. Index matches {@link #outcomes}. */
+    private final LinkedHashMap<String, long[]> holdings = new LinkedHashMap<>();
+    /** Per user, what he has paid for each answer, for the "amount paid per option" display. */
+    private final LinkedHashMap<String, double[]> amountPaid = new LinkedHashMap<>();
+    /** Per user, commission he has paid on this event. */
+    private final LinkedHashMap<String, Double> commissionPaid = new LinkedHashMap<>();
+    /** Insertion ordered: a user joins on his first action and never leaves. */
+    private final LinkedHashSet<String> participants = new LinkedHashSet<>();
 
     private EventStatus status;
     private double commissionCollected;
     private int winningOutcomeIndex;
 
-    public Event(int id,
-                 String name,
-                 String description,
-                 int commissionPercent,
-                 CommissionType commissionType,
-                 List<String> outcomeNames,
-                 int liquidity) {
+    protected Event(int id,
+                    String name,
+                    String description,
+                    int commissionPercent,
+                    CommissionType commissionType,
+                    List<String> outcomeNames,
+                    String marketMakerName) {
         this.id = id;
         this.name = name;
         this.description = description;
         this.commissionPercent = commissionPercent;
         this.commissionType = commissionType;
+        this.marketMakerName = marketMakerName;
         this.outcomes = new ArrayList<>();
         for (String outcomeName : outcomeNames) {
             this.outcomes.add(new Outcome(outcomeName));
         }
-        this.market = new LmsrMarket(liquidity, this.outcomes.size());
-        this.trades = new ArrayList<>();
-        this.status = EventStatus.ACTIVE;
+        this.account = new Account(0.0d);
+        this.status = EventStatus.NOT_STARTED;
         this.commissionCollected = 0.0d;
         this.winningOutcomeIndex = -1;
-        this.openingSubsidy = market.openingSubsidy();
-        this.account = new Account(openingSubsidy);
     }
 
     public int id() {
@@ -80,45 +89,30 @@ public class Event implements Serializable {
         return commissionType;
     }
 
-    public EventStatus status() {
-        return status;
+    public String marketMakerName() {
+        return marketMakerName;
     }
 
-    public int liquidity() {
-        return market.liquidity();
+    public EventStatus status() {
+        return status;
     }
 
     public List<Outcome> outcomes() {
         return Collections.unmodifiableList(outcomes);
     }
 
-    /** In the order the trades happened. */
-    public List<Trade> trades() {
-        return Collections.unmodifiableList(trades);
-    }
-
     public double accountBalance() {
         return account.balance();
-    }
-
-    public double openingSubsidy() {
-        return openingSubsidy;
-    }
-
-    /** Negative means the market maker ended up subsidising the event. */
-    public double marketMakerNetResult() {
-        return account.balance() - openingSubsidy;
     }
 
     public double commissionCollected() {
         return commissionCollected;
     }
 
-    public double price(int outcomeIndex) {
-        return market.price(outcomeIndex);
+    public Set<String> participants() {
+        return Collections.unmodifiableSet(participants);
     }
 
-    /** Null while the event is still active. */
     public Outcome winningOutcome() {
         return winningOutcomeIndex < 0 ? null : outcomes.get(winningOutcomeIndex);
     }
@@ -127,66 +121,111 @@ public class Event implements Serializable {
         return outcomeIndex >= 0 && outcomeIndex < outcomes.size();
     }
 
-    /**
-     * Buys shares of one answer. On an on-purchase event the commission goes on top of the LMSR
-     * price and lands in the account with it.
-     *
-     * @throws IllegalStateException if the event is already closed.
-     */
-    public Trade buy(int outcomeIndex, long quantity) {
-        if (status != EventStatus.ACTIVE) {
-            throw new IllegalStateException("event " + id + " is closed and cannot be traded");
-        }
-        double sharesCost = market.applyBuy(outcomeIndex, quantity);
-        double commission = commissionType == CommissionType.ON_PURCHASE
-                ? sharesCost * commissionPercent / 100.0d
-                : 0.0d;
-
-        outcomes.get(outcomeIndex).addShares(quantity);
-        account.deposit(sharesCost);
-        if (commission > 0.0d) {
-            account.deposit(commission);
-            commissionCollected += commission;
-        }
-
-        Trade trade = new Trade(outcomes.get(outcomeIndex).name(), quantity, sharesCost, commission);
-        trades.add(trade);
-        return trade;
+    public boolean isMarketMaker(String userName) {
+        return marketMakerName.equals(userName);
     }
 
+    public double commissionRate() {
+        return commissionPercent / 100.0d;
+    }
+
+    public long holdingOf(String userName, int outcomeIndex) {
+        long[] mine = holdings.get(userName);
+        return mine == null ? 0L : mine[outcomeIndex];
+    }
+
+    public double amountPaidBy(String userName, int outcomeIndex) {
+        double[] mine = amountPaid.get(userName);
+        return mine == null ? 0.0d : mine[outcomeIndex];
+    }
+
+    public double commissionPaidBy(String userName) {
+        return commissionPaid.getOrDefault(userName, 0.0d);
+    }
+
+    public boolean isParticipant(String userName) {
+        return participants.contains(userName);
+    }
+
+    /** The other answer of a binary event. */
+    public int oppositeOf(int outcomeIndex) {
+        return outcomeIndex == 0 ? 1 : 0;
+    }
+
+    /** What the market maker must put up to open. */
+    public abstract double openingCost();
+
+    /** LMSR or order book, for the front end to branch on without instanceof. */
+    public abstract guessmarket.dto.MarketMethod method();
+
     /**
-     * Resolves the event and pays the winners. Every winning share is worth
-     * {@link LmsrMarket#PAYOUT_PER_WINNING_SHARE}; on an on-close event the commission comes off
-     * that winning position first and stays in the account.
+     * Moves the event from not started to active, taking the opening cost out of the market
+     * maker's pocket and into the event's account.
      *
-     * @throws IllegalStateException if the event is already closed.
+     * @throws IllegalStateException if the event has already been opened.
      */
-    public Settlement close(int winningIndex) {
+    public void open(User marketMaker) {
+        if (status != EventStatus.NOT_STARTED) {
+            throw new IllegalStateException("event " + id + " has already been opened");
+        }
+        double cost = openingCost();
+        marketMaker.pay(cost);
+        account.deposit(cost);
+        join(marketMaker.name());
+        onOpened(marketMaker);
+        status = EventStatus.ACTIVE;
+    }
+
+    /** Hook for whatever else opening means — an order book hands the market maker his shares. */
+    protected void onOpened(User marketMaker) {
+        // nothing by default
+    }
+
+    protected void requireActive() {
         if (status != EventStatus.ACTIVE) {
-            throw new IllegalStateException("event " + id + " is already closed");
+            throw new IllegalStateException("event " + id + " is not active");
         }
-        long winningShares = outcomes.get(winningIndex).sharesBought();
-        double grossPayout = winningShares * LmsrMarket.PAYOUT_PER_WINNING_SHARE;
-        double commission = commissionType == CommissionType.ON_CLOSE
-                ? grossPayout * commissionPercent / 100.0d
-                : 0.0d;
-        double netPayout = grossPayout - commission;
+    }
 
-        if (commission > 0.0d) {
-            commissionCollected += commission;
-        }
-        account.withdraw(netPayout);
-
+    protected void markClosed(int winningIndex) {
         winningOutcomeIndex = winningIndex;
         status = EventStatus.CLOSED;
-        return new Settlement(outcomes.get(winningIndex).name(), winningShares, grossPayout, commission, netPayout);
     }
 
-    /** What happened when the event was closed. {@code commissionCharged} is 0 for on-purchase events. */
-    public record Settlement(String winningOutcomeName,
-                             long winningShares,
-                             double grossPayout,
-                             double commissionCharged,
-                             double netPaidToWinners) implements Serializable {
+    protected Account account() {
+        return account;
+    }
+
+    protected void join(String userName) {
+        participants.add(userName);
+        holdings.computeIfAbsent(userName, key -> new long[outcomes.size()]);
+        amountPaid.computeIfAbsent(userName, key -> new double[outcomes.size()]);
+    }
+
+    protected void addHolding(String userName, int outcomeIndex, long quantity, double paid) {
+        join(userName);
+        holdings.get(userName)[outcomeIndex] += quantity;
+        amountPaid.get(userName)[outcomeIndex] += paid;
+    }
+
+    protected void recordCommissionPaid(String userName, double amount) {
+        if (amount <= 0.0d) {
+            return;
+        }
+        commissionPaid.merge(userName, amount, Double::sum);
+        commissionCollected += amount;
+    }
+
+    /** Commission never sits in the event's account: it is the market maker's income. */
+    protected void payCommissionToMarketMaker(String payerName, double amount, User marketMaker) {
+        if (amount <= 0.0d) {
+            return;
+        }
+        marketMaker.receive(amount);
+        recordCommissionPaid(payerName, amount);
+    }
+
+    protected Map<String, long[]> holdingsView() {
+        return Collections.unmodifiableMap(holdings);
     }
 }

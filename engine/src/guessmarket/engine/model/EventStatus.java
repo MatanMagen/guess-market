@@ -1,7 +1,11 @@
 package guessmarket.engine.model;
 
-/** Every event is ACTIVE from the moment it is loaded until the user resolves it. */
+/**
+ * An event is loaded NOT_STARTED. Only its market maker can open it, and only he can close it;
+ * a closed event can never be reopened.
+ */
 public enum EventStatus {
+    NOT_STARTED,
     ACTIVE,
     CLOSED
 }
