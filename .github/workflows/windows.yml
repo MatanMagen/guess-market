@@ -1,0 +1,72 @@
+# Temporary: proves the submission starts and renders on the platform the grader uses.
+# Deleted once it has passed, since it is not part of the exercise.
+name: windows check
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Build
+        run: GM_JAVA_HOME="$JAVA_HOME" ./build.sh
+      - name: Engine tests
+        run: GM_JAVA_HOME="$JAVA_HOME" ./test.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  windows:
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Show what arrived
+        shell: cmd
+        run: |
+          dir dist
+          dir dist\lib\javafx
+
+      - name: run.bat starts and stays up
+        shell: cmd
+        run: |
+          cd dist
+          start "gm" /b cmd /c run.bat
+          ping -n 16 127.0.0.1 > nul
+          tasklist /fi "imagename eq java.exe" | find /i "java.exe"
+          if errorlevel 1 (
+            echo run.bat did not leave a running java process
+            exit /b 1
+          )
+          taskkill /f /im java.exe
+          exit /b 0
+
+      - name: The window comes up and the engine agrees with the Mac
+        shell: cmd
+        run: |
+          javac --module-path dist\lib\javafx --add-modules javafx.controls ^
+                -cp "dist\guess-market-ui.jar;dist\guess-market-engine.jar;dist\guess-market-dto.jar" ^
+                -d ci-classes .github\ci\WindowsSmoke.java
+          java --module-path dist\lib\javafx --add-modules javafx.controls ^
+               --enable-native-access=javafx.graphics ^
+               -cp "ci-classes;dist\guess-market-ui.jar;dist\guess-market-engine.jar;dist\guess-market-dto.jar;dist\lib\*" ^
+               WindowsSmoke "%CD%\dist\test-files" > smoke.txt 2>&1
+          type smoke.txt
+          find "SMOKE OK" smoke.txt
