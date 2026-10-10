@@ -25,7 +25,6 @@ import jakarta.xml.bind.annotation.XmlType;
  *   <complexContent>
  *     <restriction base="{http://www.w3.org/2001/XMLSchema}anyType">
  *       <sequence>
- *         <element ref="{}id"/>
  *         <element ref="{}description"/>
  *         <element ref="{}commission"/>
  *         <element ref="{}GM-options"/>
@@ -41,7 +40,6 @@ import jakarta.xml.bind.annotation.XmlType;
  */
 @XmlAccessorType(XmlAccessType.FIELD)
 @XmlType(name = "", propOrder = {
-    "id",
     "description",
     "commission",
     "gmOptions",
@@ -50,7 +48,6 @@ import jakarta.xml.bind.annotation.XmlType;
 @XmlRootElement(name = "GM-event")
 public class GMEvent {
 
-    protected int id;
     @XmlElement(required = true)
     protected String description;
     @XmlElement(required = true)
@@ -61,22 +58,6 @@ public class GMEvent {
     protected GMMethod gmMethod;
     @XmlAttribute(name = "name", required = true)
     protected String name;
-
-    /**
-     * Gets the value of the id property.
-     * 
-     */
-    public int getId() {
-        return id;
-    }
-
-    /**
-     * Sets the value of the id property.
-     * 
-     */
-    public void setId(int value) {
-        this.id = value;
-    }
 
     /**
      * Gets the value of the description property.
