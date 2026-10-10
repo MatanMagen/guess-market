@@ -1,5 +1,8 @@
 package guessmarket.engine.model;
 
+import guessmarket.dto.EntryKind;
+import guessmarket.dto.MarketMethod;
+
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -147,16 +150,11 @@ public abstract class Event implements Serializable {
         return participants.contains(userName);
     }
 
-    /** The other answer of a binary event. */
-    public int oppositeOf(int outcomeIndex) {
-        return outcomeIndex == 0 ? 1 : 0;
-    }
-
     /** What the market maker must put up to open. */
     public abstract double openingCost();
 
     /** LMSR or order book, for the front end to branch on without instanceof. */
-    public abstract guessmarket.dto.MarketMethod method();
+    public abstract MarketMethod method();
 
     /**
      * Moves the event from not started to active, taking the opening cost out of the market
@@ -169,7 +167,7 @@ public abstract class Event implements Serializable {
             throw new IllegalStateException("event " + id + " has already been opened");
         }
         double cost = openingCost();
-        marketMaker.pay(cost);
+        marketMaker.pay(cost, method() == MarketMethod.LMSR ? EntryKind.SUBSIDY_PAID : EntryKind.INITIAL_STOCK, name);
         account.deposit(cost);
         join(marketMaker.name());
         onOpened(marketMaker);
@@ -216,13 +214,17 @@ public abstract class Event implements Serializable {
         commissionCollected += amount;
     }
 
-    /** Commission never sits in the event's account: it is the market maker's income. */
-    protected void payCommissionToMarketMaker(String payerName, double amount, User marketMaker) {
+    /**
+     * Commission never sits in the event's account: it goes straight from whoever owes it into the
+     * market maker's pocket.
+     */
+    protected void chargeCommission(User payer, double amount, User marketMaker) {
         if (amount <= 0.0d) {
             return;
         }
-        marketMaker.receive(amount);
-        recordCommissionPaid(payerName, amount);
+        payer.pay(amount, EntryKind.COMMISSION_PAID, name);
+        marketMaker.receive(amount, EntryKind.COMMISSION_RECEIVED, name);
+        recordCommissionPaid(payer.name(), amount);
     }
 
     protected Map<String, long[]> holdingsView() {

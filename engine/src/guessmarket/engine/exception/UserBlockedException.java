@@ -1,8 +1,8 @@
 package guessmarket.engine.exception;
 
 /**
- * A user whose balance has been taken below zero asked to act. The exercise bars him from then
- * on, and there is no way to put money back into an account, so this is permanent.
+ * A user whose balance has been taken below zero asked to act. The exercise bars him until he
+ * loads enough money into his account to bring it back to zero or above.
  */
 public class UserBlockedException extends GuessMarketException {
 

@@ -6,132 +6,108 @@ import guessmarket.engine.exception.InvalidFileException;
 import guessmarket.engine.model.CommissionType;
 import guessmarket.engine.model.Event;
 import guessmarket.engine.model.LmsrEvent;
-import guessmarket.engine.model.MarketState;
 import guessmarket.engine.model.OrderBookEvent;
-import guessmarket.engine.model.User;
 import guessmarket.engine.xml.generated.Commission;
 import guessmarket.engine.xml.generated.GMEvent;
 import guessmarket.engine.xml.generated.GMLMSR;
 import guessmarket.engine.xml.generated.GMMethod;
 import guessmarket.engine.xml.generated.GMOptions;
 import guessmarket.engine.xml.generated.GMOrderBook;
-import guessmarket.engine.xml.generated.GMUser;
 import guessmarket.engine.xml.generated.GuessMarket;
 import jakarta.xml.bind.JAXBContext;
 import jakarta.xml.bind.JAXBException;
 import jakarta.xml.bind.Unmarshaller;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
- * Turns a Guess Market XML file into a {@link MarketState}. Reading and validating are engine
- * work, so a front end supplies nothing but the path the user chose.
+ * Turns an uploaded Guess Market XML file into events. Reading and validating are engine work, so
+ * a front end supplies nothing but the bytes and the name the file had on the user's machine.
  * <p>
- * What is checked here is what the schema cannot express. From exercise 1: the file exists and is
- * named .xml, event numbers do not repeat, commissions are sensible percentages, each event has
- * exactly two distinct answers, and b can be divided by. Added for exercise 2: user names are
- * unique, every user opens with money, no market maker points at an event that is not there, and
- * every event has exactly one market maker. Faults are collected rather than thrown one at a time.
+ * The file never touches the server's disk: it is read straight from the stream it arrived on.
+ * <p>
+ * What is checked here is what the schema cannot express, as in exercise 1: the file is named
+ * .xml, commissions are sensible percentages, every event has at least two distinct answers, and
+ * b and d can be divided by. Exercise 3 adds that an event's name must be new — neither repeated
+ * inside the file nor already used by an event in the system. Faults are collected rather than
+ * thrown one at a time.
  */
 public final class XmlEventLoader {
 
     /** The extension a Guess Market file must carry. */
     private static final String REQUIRED_EXTENSION = ".xml";
 
-    /** Package holding the classes generated from GM-EX2-Schema.xsd. */
-    private static final String GENERATED_PACKAGE = "guessmarket.engine.xml.generated";
-
     private static final int MIN_COMMISSION_PERCENT = 0;
     private static final int MAX_COMMISSION_PERCENT = 90;
-    private static final int REQUIRED_OUTCOME_COUNT = 2;
+    private static final int MIN_OUTCOME_COUNT = 2;
+
+    /** Building a context is slow and it is safe to share, so it is done once. */
+    private static JAXBContext context;
 
     /**
-     * @param rawPath as chosen by the user. Surrounding spaces and a surrounding pair of quotation
-     *                marks are tolerated: a path pasted out of Windows Explorer often has them.
-     * @throws InvalidFileException carrying every fault found.
+     * @param fileName       as the user's machine called it; only its extension matters.
+     * @param marketMaker    who uploaded the file, and so runs every event in it.
+     * @param nameTaken      whether an event of that name already exists in the system.
+     * @param firstId        the number the first event will be given; the rest follow on.
+     * @throws InvalidFileException carrying every fault found. Nothing is created in that case.
      */
-    public MarketState load(String rawPath) {
-        String path = normalizePath(rawPath);
-
-        if (path.isEmpty()) {
-            throw new InvalidFileException(path, List.of(FileProblem.ofFile(ProblemKind.NO_PATH_GIVEN)));
-        }
-
-        List<FileProblem> problems = new ArrayList<>();
-        File file = new File(path);
-
-        if (!path.toLowerCase().endsWith(REQUIRED_EXTENSION)) {
-            problems.add(FileProblem.ofFile(ProblemKind.WRONG_EXTENSION, path, REQUIRED_EXTENSION));
-        }
-        if (!file.exists()) {
-            problems.add(FileProblem.ofFile(ProblemKind.FILE_NOT_FOUND, path));
-        } else if (file.isDirectory()) {
-            problems.add(FileProblem.ofFile(ProblemKind.PATH_IS_A_FOLDER, path));
-        } else if (!file.canRead()) {
-            problems.add(FileProblem.ofFile(ProblemKind.FILE_NOT_READABLE, path));
-        }
-        if (!problems.isEmpty()) {
-            throw new InvalidFileException(path, problems);
+    public List<Event> load(InputStream xml, String fileName, String marketMaker,
+                            Predicate<String> nameTaken, int firstId) {
+        String name = fileName == null ? "" : fileName.trim();
+        if (!name.toLowerCase().endsWith(REQUIRED_EXTENSION)) {
+            throw new InvalidFileException(name,
+                    List.of(FileProblem.ofFile(ProblemKind.WRONG_EXTENSION, name, REQUIRED_EXTENSION)));
         }
 
         GuessMarket parsed;
         try {
-            parsed = unmarshal(file);
-        } catch (JAXBException | IOException e) {
-            throw new InvalidFileException(path,
-                    List.of(FileProblem.ofFile(ProblemKind.UNREADABLE_XML, path, rootCauseMessage(e))));
+            parsed = unmarshal(xml);
+        } catch (JAXBException | RuntimeException e) {
+            throw new InvalidFileException(name,
+                    List.of(FileProblem.ofFile(ProblemKind.UNREADABLE_XML, name, rootCauseMessage(e))));
         }
 
         List<GMEvent> xmlEvents = extractEvents(parsed);
-        List<GMUser> xmlUsers = extractUsers(parsed);
         if (xmlEvents.isEmpty()) {
-            problems.add(FileProblem.ofFile(ProblemKind.NO_EVENTS));
+            throw new InvalidFileException(name, List.of(FileProblem.ofFile(ProblemKind.NO_EVENTS)));
         }
-        if (xmlUsers.isEmpty()) {
-            problems.add(FileProblem.ofFile(ProblemKind.NO_USERS));
-        }
+        List<FileProblem> problems = findEventProblems(xmlEvents, nameTaken);
         if (!problems.isEmpty()) {
-            throw new InvalidFileException(path, problems);
+            throw new InvalidFileException(name, problems);
         }
 
-        problems.addAll(findEventProblems(xmlEvents));
-        problems.addAll(findUserProblems(xmlUsers, xmlEvents));
-        if (!problems.isEmpty()) {
-            throw new InvalidFileException(path, problems);
-        }
-
-        Map<Integer, String> marketMakers = marketMakersByEventId(xmlUsers);
         List<Event> events = new ArrayList<>();
+        int id = firstId;
         for (GMEvent xmlEvent : xmlEvents) {
-            events.add(toEvent(xmlEvent, marketMakers.get(xmlEvent.getId())));
+            events.add(toEvent(xmlEvent, id++, marketMaker));
         }
-        List<User> users = new ArrayList<>();
-        for (GMUser xmlUser : xmlUsers) {
-            users.add(new User(xmlUser.getName().trim(), xmlUser.getInitialCash()));
-        }
-        return new MarketState(file.getAbsolutePath(), events, users);
+        return events;
     }
 
-    private GuessMarket unmarshal(File file) throws JAXBException, IOException {
-        JAXBContext context = JAXBContext.newInstance(GENERATED_PACKAGE);
-        Unmarshaller unmarshaller = context.createUnmarshaller();
-        try (InputStream in = new FileInputStream(file)) {
-            Object root = unmarshaller.unmarshal(in);
-            if (!(root instanceof GuessMarket guessMarket)) {
-                throw new JAXBException("the root element is not Guess-Market");
-            }
-            return guessMarket;
+    private static synchronized JAXBContext context() throws JAXBException {
+        if (context == null) {
+            context = JAXBContext.newInstance(GuessMarket.class);
         }
+        return context;
+    }
+
+    private GuessMarket unmarshal(InputStream xml) throws JAXBException {
+        if (xml == null) {
+            throw new JAXBException("no content was received");
+        }
+        Unmarshaller unmarshaller = context().createUnmarshaller();
+        Object root = unmarshaller.unmarshal(xml);
+        if (!(root instanceof GuessMarket guessMarket)) {
+            throw new JAXBException("the root element is not Guess-Market");
+        }
+        return guessMarket;
     }
 
     private List<GMEvent> extractEvents(GuessMarket parsed) {
@@ -141,29 +117,25 @@ public final class XmlEventLoader {
         return parsed.getGMEvents().getGMEvent();
     }
 
-    private List<GMUser> extractUsers(GuessMarket parsed) {
-        if (parsed.getGMUsers() == null || parsed.getGMUsers().getGMUser() == null) {
-            return List.of();
-        }
-        return parsed.getGMUsers().getGMUser();
-    }
-
-    private List<FileProblem> findEventProblems(List<GMEvent> xmlEvents) {
+    private List<FileProblem> findEventProblems(List<GMEvent> xmlEvents, Predicate<String> nameTaken) {
         List<FileProblem> problems = new ArrayList<>();
-        Map<Integer, Integer> firstPositionOfId = new HashMap<>();
+        Map<String, Integer> firstPositionOfName = new HashMap<>();
 
         for (int i = 0; i < xmlEvents.size(); i++) {
             GMEvent xmlEvent = xmlEvents.get(i);
             int position = i + 1;
             String name = trimmed(xmlEvent.getName());
 
-            Integer earlierPosition = firstPositionOfId.putIfAbsent(xmlEvent.getId(), position);
-            if (earlierPosition != null) {
-                problems.add(FileProblem.ofEvent(ProblemKind.DUPLICATE_EVENT_ID, position, name,
-                        String.valueOf(xmlEvent.getId()), String.valueOf(earlierPosition)));
-            }
             if (name.isEmpty()) {
                 problems.add(FileProblem.ofEvent(ProblemKind.BLANK_EVENT_NAME, position, name));
+            } else {
+                Integer earlierPosition = firstPositionOfName.putIfAbsent(name, position);
+                if (earlierPosition != null) {
+                    problems.add(FileProblem.ofEvent(ProblemKind.DUPLICATE_EVENT_NAME_IN_FILE, position, name,
+                            name, String.valueOf(earlierPosition)));
+                } else if (nameTaken.test(name)) {
+                    problems.add(FileProblem.ofEvent(ProblemKind.DUPLICATE_EVENT_NAME, position, name, name));
+                }
             }
 
             problems.addAll(checkCommission(position, name, xmlEvent.getCommission()));
@@ -195,14 +167,14 @@ public final class XmlEventLoader {
     private List<FileProblem> checkOutcomes(int position, String name, GMOptions options) {
         if (options == null || options.getGMOption() == null) {
             return List.of(FileProblem.ofEvent(ProblemKind.WRONG_ANSWER_COUNT, position, name,
-                    "0", String.valueOf(REQUIRED_OUTCOME_COUNT)));
+                    "0", String.valueOf(MIN_OUTCOME_COUNT)));
         }
         List<FileProblem> problems = new ArrayList<>();
         List<String> names = trimmedOutcomeNames(options);
 
-        if (names.size() != REQUIRED_OUTCOME_COUNT) {
+        if (names.size() < MIN_OUTCOME_COUNT) {
             problems.add(FileProblem.ofEvent(ProblemKind.WRONG_ANSWER_COUNT, position, name,
-                    String.valueOf(names.size()), String.valueOf(REQUIRED_OUTCOME_COUNT)));
+                    String.valueOf(names.size()), String.valueOf(MIN_OUTCOME_COUNT)));
         }
         for (int i = 0; i < names.size(); i++) {
             if (names.get(i).isEmpty()) {
@@ -220,14 +192,10 @@ public final class XmlEventLoader {
     }
 
     private List<FileProblem> checkMethod(int position, String name, GMMethod method) {
-        if (method == null) {
+        if (method == null || (method.getGMLMSR() == null && method.getGMOrderBook() == null)) {
             return List.of(FileProblem.ofEvent(ProblemKind.MISSING_METHOD, position, name));
         }
         GMLMSR lmsr = method.getGMLMSR();
-        GMOrderBook orderBook = method.getGMOrderBook();
-        if (lmsr == null && orderBook == null) {
-            return List.of(FileProblem.ofEvent(ProblemKind.MISSING_METHOD, position, name));
-        }
         if (lmsr != null) {
             if (lmsr.getB() <= 0) {
                 return List.of(FileProblem.ofEvent(ProblemKind.LIQUIDITY_NOT_POSITIVE, position, name,
@@ -236,6 +204,7 @@ public final class XmlEventLoader {
             return List.of();
         }
 
+        GMOrderBook orderBook = method.getGMOrderBook();
         List<FileProblem> problems = new ArrayList<>();
         if (orderBook.getD() <= 0) {
             problems.add(FileProblem.ofEvent(ProblemKind.BASE_PRICE_NOT_POSITIVE, position, name,
@@ -252,86 +221,7 @@ public final class XmlEventLoader {
         return problems;
     }
 
-    private List<FileProblem> findUserProblems(List<GMUser> xmlUsers, List<GMEvent> xmlEvents) {
-        List<FileProblem> problems = new ArrayList<>();
-        Map<String, Integer> firstPositionOfName = new HashMap<>();
-        Set<Integer> knownEventIds = new LinkedHashSet<>();
-        for (GMEvent xmlEvent : xmlEvents) {
-            knownEventIds.add(xmlEvent.getId());
-        }
-        Map<Integer, List<String>> claimsByEventId = new LinkedHashMap<>();
-
-        for (int i = 0; i < xmlUsers.size(); i++) {
-            GMUser xmlUser = xmlUsers.get(i);
-            int position = i + 1;
-            String name = trimmed(xmlUser.getName());
-
-            if (name.isEmpty()) {
-                problems.add(FileProblem.ofFile(ProblemKind.BLANK_USER_NAME, String.valueOf(position)));
-            } else {
-                Integer earlier = firstPositionOfName.putIfAbsent(name, position);
-                if (earlier != null) {
-                    problems.add(FileProblem.ofFile(ProblemKind.DUPLICATE_USER_NAME, name, String.valueOf(earlier)));
-                }
-            }
-            if (xmlUser.getInitialCash() <= 0) {
-                problems.add(FileProblem.ofFile(ProblemKind.INITIAL_CASH_NOT_POSITIVE,
-                        name, String.valueOf(xmlUser.getInitialCash())));
-            }
-
-            Set<Integer> claimedHere = new LinkedHashSet<>();
-            for (int eventId : marketMakerEventIds(xmlUser)) {
-                if (!claimedHere.add(eventId)) {
-                    problems.add(FileProblem.ofFile(ProblemKind.MARKET_MAKER_TWICE_OF_SAME_EVENT,
-                            name, String.valueOf(eventId)));
-                    continue;
-                }
-                if (!knownEventIds.contains(eventId)) {
-                    problems.add(FileProblem.ofFile(ProblemKind.MARKET_MAKER_OF_UNKNOWN_EVENT,
-                            name, String.valueOf(eventId)));
-                    continue;
-                }
-                claimsByEventId.computeIfAbsent(eventId, key -> new ArrayList<>()).add(name);
-            }
-        }
-
-        for (int i = 0; i < xmlEvents.size(); i++) {
-            GMEvent xmlEvent = xmlEvents.get(i);
-            int position = i + 1;
-            String name = trimmed(xmlEvent.getName());
-            List<String> claims = claimsByEventId.getOrDefault(xmlEvent.getId(), List.of());
-            if (claims.isEmpty()) {
-                problems.add(FileProblem.ofEvent(ProblemKind.EVENT_WITHOUT_MARKET_MAKER, position, name));
-            } else if (claims.size() > 1) {
-                problems.add(FileProblem.ofEvent(ProblemKind.EVENT_WITH_SEVERAL_MARKET_MAKERS, position, name,
-                        String.join(", ", claims)));
-            }
-        }
-        return problems;
-    }
-
-    private Map<Integer, String> marketMakersByEventId(List<GMUser> xmlUsers) {
-        Map<Integer, String> owners = new LinkedHashMap<>();
-        for (GMUser xmlUser : xmlUsers) {
-            for (int eventId : marketMakerEventIds(xmlUser)) {
-                owners.putIfAbsent(eventId, trimmed(xmlUser.getName()));
-            }
-        }
-        return owners;
-    }
-
-    private List<Integer> marketMakerEventIds(GMUser xmlUser) {
-        if (xmlUser.getGMMarketMaker() == null || xmlUser.getGMMarketMaker().getEvent() == null) {
-            return List.of();
-        }
-        List<Integer> ids = new ArrayList<>();
-        for (guessmarket.engine.xml.generated.Event reference : xmlUser.getGMMarketMaker().getEvent()) {
-            ids.add(reference.getId());
-        }
-        return ids;
-    }
-
-    private Event toEvent(GMEvent xmlEvent, String marketMakerName) {
+    private Event toEvent(GMEvent xmlEvent, int id, String marketMakerName) {
         CommissionType commissionType = CommissionType.fromXmlValue(xmlEvent.getCommission().getType());
         String name = trimmed(xmlEvent.getName());
         String description = xmlEvent.getDescription() == null ? "" : xmlEvent.getDescription().trim();
@@ -340,11 +230,11 @@ public final class XmlEventLoader {
         GMMethod method = xmlEvent.getGMMethod();
 
         if (method.getGMLMSR() != null) {
-            return new LmsrEvent(xmlEvent.getId(), name, description, commissionPercent, commissionType,
+            return new LmsrEvent(id, name, description, commissionPercent, commissionType,
                     outcomeNames, marketMakerName, method.getGMLMSR().getB());
         }
         GMOrderBook orderBook = method.getGMOrderBook();
-        return new OrderBookEvent(xmlEvent.getId(), name, description, commissionPercent, commissionType,
+        return new OrderBookEvent(id, name, description, commissionPercent, commissionType,
                 outcomeNames, marketMakerName,
                 orderBook.getD(),
                 Boolean.TRUE.equals(parseMintFlag(orderBook.getAllowMint())),
@@ -377,17 +267,6 @@ public final class XmlEventLoader {
 
     private String trimmed(String value) {
         return value == null ? "" : value.trim();
-    }
-
-    private String normalizePath(String rawPath) {
-        if (rawPath == null) {
-            return "";
-        }
-        String path = rawPath.trim();
-        if (path.length() >= 2 && path.startsWith("\"") && path.endsWith("\"")) {
-            path = path.substring(1, path.length() - 1).trim();
-        }
-        return path;
     }
 
     private String rootCauseMessage(Throwable throwable) {

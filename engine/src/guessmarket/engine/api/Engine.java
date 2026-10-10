@@ -12,41 +12,51 @@ import guessmarket.dto.UserDetails;
 import guessmarket.dto.UserSummary;
 import guessmarket.engine.exception.InvalidFileException;
 
+import java.io.InputStream;
 import java.util.List;
 
 /**
- * Everything the engine can do, and the only thing a user interface talks to.
+ * Everything the engine can do, and the only thing a front end talks to. Since exercise 3 that
+ * front end is the server, which calls it on behalf of many users at once.
  * <p>
  * The engine is passive: it does not know who is calling it and never prints. It answers with the
  * immutable records of the dto module, never with its own objects, and reports faults as the
  * unchecked exceptions of {@code guessmarket.engine.exception}, which carry the facts rather than
  * a finished sentence.
  * <p>
- * Events are addressed by the id they carry in the file, not by where they happen to sit in a
- * listing, so a front end that filters or sorts its view cannot address the wrong one. Users are
- * addressed by name, which the loader has proved unique.
+ * Events are addressed by the number the engine gave them when they were uploaded, so a front end
+ * that filters or sorts its view cannot address the wrong one. Users are addressed by name, which
+ * registration keeps unique.
  */
 public interface Engine {
 
     /**
-     * Reads a file and, if it is sound, replaces whatever is loaded. A file that fails any check
-     * changes nothing.
+     * Brings a new user into the system with an empty account.
      *
+     * @throws guessmarket.engine.exception.UserAlreadyExistsException if the name is taken.
+     * @throws guessmarket.engine.exception.InvalidUserNameException if the name is blank.
+     */
+    void registerUser(String userName);
+
+    /** Loads money into a user's account, which is also how a blocked user gets unblocked. */
+    UserDetails depositFunds(String userName, double amount);
+
+    /**
+     * Reads an uploaded file and, if it is sound, adds every event in it to the system, with the
+     * uploader as their market maker. A file that fails any check adds nothing.
+     *
+     * @param fileName what the file was called on the uploader's machine.
      * @throws InvalidFileException carrying every fault found in the file.
      */
-    LoadSummary loadFromFile(String path);
+    LoadSummary uploadEvents(InputStream xml, String fileName, String uploaderName);
 
-    boolean isLoaded();
-
-    String loadedSourceDescription();
-
-    /** Every user, in file order. */
+    /** Every user, in the order they joined. */
     List<UserSummary> listUsers();
 
-    /** One user with every event he has taken part in. */
+    /** One user with his account lines and every event he runs or has taken part in. */
     UserDetails userDetails(String userName);
 
-    /** Every loaded event, in file order. A front end filters this list itself. */
+    /** Every event, in the order it was uploaded. A front end filters this list itself. */
     List<EventSummary> listEvents();
 
     EventState eventState(int eventId);
@@ -79,7 +89,7 @@ public interface Engine {
 
     /**
      * Brings a new event into being, with the user who asked for it as its market maker. It is
-     * checked against the same rules a loaded file has to satisfy, and once accepted it behaves
+     * checked against the same rules an uploaded file has to satisfy, and once accepted it behaves
      * like any other event: not started, with an empty account, waiting for its maker to open it.
      *
      * @throws guessmarket.engine.exception.InvalidEventException carrying every fault found.

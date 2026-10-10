@@ -1,6 +1,6 @@
 package guessmarket.engine.exception;
 
-/** A user was named that the loaded file does not define. */
+/** A user was named who has never logged in. */
 public class NoSuchUserException extends GuessMarketException {
 
     private static final long serialVersionUID = 1L;

@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Guess-Market xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="GM-EX2-Schema.xsd">
+<Guess-Market xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="GM-EX3-Schema.xsd">
 	<GM-events>
 		<GM-event name="Only Event">
-			<id>1</id>
 			<description>a description</description>
 			<commission type="on-close">-5</commission>
 			<GM-options>
@@ -16,12 +15,4 @@
 			</GM-method>
 		</GM-event>
 	</GM-events>
-	<GM-users>
-		<GM-user name="Tikva">
-			<initial-cash>1000</initial-cash>
-			<GM-market-maker>
-				<event id="1"/>
-			</GM-market-maker>
-		</GM-user>
-	</GM-users>
 </Guess-Market>

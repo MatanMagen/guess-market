@@ -1,5 +1,6 @@
 package guessmarket.engine.model;
 
+import guessmarket.dto.EntryKind;
 import guessmarket.dto.MarketMethod;
 
 import java.io.Serializable;
@@ -92,9 +93,9 @@ public class LmsrEvent extends Event {
         double sharesCost = market.applyBuy(outcomeIndex, quantity);
         double commission = commissionType() == CommissionType.ON_PURCHASE ? sharesCost * commissionRate() : 0.0d;
 
-        buyer.pay(sharesCost + commission);
+        buyer.pay(sharesCost, EntryKind.SHARES_BOUGHT, name());
         account().deposit(sharesCost);
-        payCommissionToMarketMaker(buyer.name(), commission, marketMaker);
+        chargeCommission(buyer, commission, marketMaker);
 
         outcomes().get(outcomeIndex).addShares(quantity);
         addHolding(buyer.name(), outcomeIndex, quantity, sharesCost);
@@ -125,8 +126,9 @@ public class LmsrEvent extends Event {
             double net = gross - commission;
 
             account().withdraw(gross);
-            users.get(participant).receive(net);
-            payCommissionToMarketMaker(participant, commission, marketMaker);
+            User winner = users.get(participant);
+            winner.receive(gross, EntryKind.WINNINGS, name());
+            chargeCommission(winner, commission, marketMaker);
 
             payments.add(new Payment(participant, shares, gross, commission, net));
             grossTotal += gross;
@@ -136,7 +138,7 @@ public class LmsrEvent extends Event {
         double leftover = accountBalance();
         if (leftover > 0.0d) {
             account().withdraw(leftover);
-            marketMaker.receive(leftover);
+            marketMaker.receive(leftover, EntryKind.SUBSIDY_RETURNED, name());
         }
 
         markClosed(winningIndex);

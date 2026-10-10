@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- More answers than the schema's maxOccurs allows. The engine prices any number of answers, so it is accepted. -->
+<Guess-Market xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="GM-EX3-Schema.xsd">
+	<GM-events>
+		<GM-event name="Who wins the league ?">
+			<description>Three way LMSR market.</description>
+			<commission type="on-close">0</commission>
+			<GM-options>
+				<GM-option>Maccabi</GM-option>
+				<GM-option>Hapoel</GM-option>
+				<GM-option>Beitar</GM-option>
+			</GM-options>
+			<GM-method>
+				<GM-LMSR>
+					<b>100</b>
+				</GM-LMSR>
+			</GM-method>
+		</GM-event>
+		<GM-event name="Three way book">
+			<description>Three way order book that mints complete sets.</description>
+			<commission type="on-close">0</commission>
+			<GM-options>
+				<GM-option>Red</GM-option>
+				<GM-option>Green</GM-option>
+				<GM-option>Blue</GM-option>
+			</GM-options>
+			<GM-method>
+				<GM-order-book allow-mint="true" initial="0" d="1"/>
+			</GM-method>
+		</GM-event>
+	</GM-events>
+</Guess-Market>

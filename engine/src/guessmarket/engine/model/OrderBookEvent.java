@@ -1,5 +1,6 @@
 package guessmarket.engine.model;
 
+import guessmarket.dto.EntryKind;
 import guessmarket.dto.FillKind;
 import guessmarket.dto.MarketMethod;
 import guessmarket.dto.OrderSide;
@@ -12,13 +13,13 @@ import java.util.Map;
 /**
  * An event traded peer to peer through a book of resting orders, one book per answer.
  * <h2>Where shares come from</h2>
- * Shares are only ever created in pairs, one of each answer, against d paid into the event's
- * account. That happens twice: when the market maker opens the event and buys the initial stock,
- * and — if the event allows it — when two buyers on opposite answers between them offer at least
- * d. Everything else is resale, which moves shares and cash between users and leaves the account
- * alone.
+ * Shares are only ever created in complete sets, one of each answer, against d paid into the
+ * event's account. For the usual two answers a set is a pair. That happens twice: when the market
+ * maker opens the event and buys the initial stock, and — if the event allows it — when buyers on
+ * every answer between them offer at least d. Everything else is resale, which moves shares and
+ * cash between users and leaves the account alone.
  * <p>
- * Because every pair ever minted put exactly d into the account and pays out exactly d at
+ * Because every set ever minted put exactly d into the account and pays out exactly d at
  * resolution, the account empties to nothing when the event closes.
  */
 public class OrderBookEvent extends Event {
@@ -116,12 +117,12 @@ public class OrderBookEvent extends Event {
         if (pairs <= 0) {
             return;
         }
-        // One payment bought both sides, so it is split evenly between them for the
+        // One payment bought every side, so it is split evenly between them for the
         // "paid per answer" display; nothing else depends on how it is attributed.
-        double halfPerSide = pairs * basePrice / 2.0d;
+        double paidPerSide = pairs * basePrice / (double) outcomes().size();
         for (int i = 0; i < outcomes().size(); i++) {
             outcomes().get(i).addShares(pairs);
-            addHolding(marketMaker.name(), i, pairs, halfPerSide);
+            addHolding(marketMaker.name(), i, pairs, paidPerSide);
         }
     }
 
@@ -189,27 +190,39 @@ public class OrderBookEvent extends Event {
         }
 
         if (mintAllowed) {
-            int opposite = oppositeOf(outcomeIndex);
-            OrderBook oppositeBook = bookOf(opposite);
             while (remaining > 0) {
-                Order restingBid = oppositeBook.bestBid();
-                if (restingBid == null || restingBid.price() + price < basePrice - EPSILON) {
+                // A set needs a buyer on every other answer. The orders already waiting are
+                // honoured at their own prices; the arriving one pays whatever is left of d, which
+                // is never worse than the limit it named.
+                List<Order> restingBids = new ArrayList<>();
+                List<Integer> restingOutcomes = new ArrayList<>();
+                double restingTotal = 0.0d;
+                long taken = remaining;
+                for (int other = 0; other < books.size(); other++) {
+                    if (other == outcomeIndex) {
+                        continue;
+                    }
+                    Order bid = bookOf(other).bestBid();
+                    if (bid == null) {
+                        restingBids = null;
+                        break;
+                    }
+                    restingBids.add(bid);
+                    restingOutcomes.add(other);
+                    restingTotal += bid.price();
+                    taken = Math.min(taken, bid.remaining());
+                }
+                // With more than two answers the others alone can already cover d, which would leave
+                // the arriving order paying nothing. ponytail: no set is minted then; split the
+                // surplus between the legs if such books ever matter.
+                if (restingBids == null || restingTotal + price < basePrice - EPSILON
+                        || restingTotal > basePrice - PRICE_STEP + EPSILON) {
                     break;
                 }
-                // The order already waiting is honoured at its own price; the arriving one pays
-                // whatever is left of d, which is never worse than the limit it named.
-                double restingPrice = restingBid.price();
-                double arrivingPrice = basePrice - restingPrice;
-                long taken = Math.min(remaining, restingBid.remaining());
-
-                mint(buyer, outcomeIndex, arrivingPrice,
-                        users.get(restingBid.userName()), opposite, restingPrice,
-                        taken, marketMaker, fills, tally);
-
-                restingBid.take(taken);
-                oppositeBook.removeExhausted();
+                double arrivingPrice = basePrice - restingTotal;
+                mint(buyer, outcomeIndex, arrivingPrice, restingBids, restingOutcomes, taken,
+                        users, marketMaker, fills, tally);
                 book.recordTradePrice(arrivingPrice);
-                oppositeBook.recordTradePrice(restingPrice);
                 remaining -= taken;
             }
         }
@@ -254,9 +267,9 @@ public class OrderBookEvent extends Event {
         double value = quantity * price;
         double commission = commissionType() == CommissionType.ON_PURCHASE ? value * commissionRate() : 0.0d;
 
-        buyer.pay(value + commission);
-        seller.receive(value);
-        payCommissionToMarketMaker(buyer.name(), commission, marketMaker);
+        buyer.pay(value, EntryKind.SHARES_BOUGHT, name());
+        seller.receive(value, EntryKind.SHARES_SOLD, name());
+        chargeCommission(buyer, commission, marketMaker);
 
         addHolding(buyer.name(), outcomeIndex, quantity, value);
         addHolding(seller.name(), outcomeIndex, -quantity, -value);
@@ -267,41 +280,52 @@ public class OrderBookEvent extends Event {
         tally.sold(seller.name(), value);
     }
 
-    /** New pairs come into existence: both buyers pay the account, and nobody sells anything. */
+    /**
+     * New sets come into existence: every buyer pays the account, and nobody sells anything. The
+     * resting bids are consumed here; the arriving order's remainder is the caller's to track.
+     */
     private void mint(User arrivingBuyer,
                       int arrivingOutcome,
                       double arrivingPrice,
-                      User restingBuyer,
-                      int restingOutcome,
-                      double restingPrice,
+                      List<Order> restingBids,
+                      List<Integer> restingOutcomes,
                       long quantity,
+                      Map<String, User> users,
                       User marketMaker,
                       List<Fill> fills,
                       Tally tally) {
-        double arrivingValue = quantity * arrivingPrice;
-        double restingValue = quantity * restingPrice;
-        boolean onPurchase = commissionType() == CommissionType.ON_PURCHASE;
-        double arrivingCommission = onPurchase ? arrivingValue * commissionRate() : 0.0d;
-        double restingCommission = onPurchase ? restingValue * commissionRate() : 0.0d;
+        buyIntoSet(arrivingBuyer, arrivingOutcome, arrivingPrice, quantity, marketMaker, fills, tally);
+        for (int i = 0; i < restingBids.size(); i++) {
+            Order bid = restingBids.get(i);
+            int outcomeIndex = restingOutcomes.get(i);
+            buyIntoSet(users.get(bid.userName()), outcomeIndex, bid.price(), quantity, marketMaker, fills, tally);
+            bid.take(quantity);
+            bookOf(outcomeIndex).removeExhausted();
+            bookOf(outcomeIndex).recordTradePrice(bid.price());
+        }
+    }
 
-        arrivingBuyer.pay(arrivingValue + arrivingCommission);
-        restingBuyer.pay(restingValue + restingCommission);
-        account().deposit(arrivingValue + restingValue);
-        payCommissionToMarketMaker(arrivingBuyer.name(), arrivingCommission, marketMaker);
-        payCommissionToMarketMaker(restingBuyer.name(), restingCommission, marketMaker);
+    /** One buyer's leg of a mint. */
+    private void buyIntoSet(User buyer,
+                            int outcomeIndex,
+                            double price,
+                            long quantity,
+                            User marketMaker,
+                            List<Fill> fills,
+                            Tally tally) {
+        double value = quantity * price;
+        double commission = commissionType() == CommissionType.ON_PURCHASE ? value * commissionRate() : 0.0d;
 
-        outcomes().get(arrivingOutcome).addShares(quantity);
-        outcomes().get(restingOutcome).addShares(quantity);
-        addHolding(arrivingBuyer.name(), arrivingOutcome, quantity, arrivingValue);
-        addHolding(restingBuyer.name(), restingOutcome, quantity, restingValue);
+        buyer.pay(value, EntryKind.SHARES_BOUGHT, name());
+        account().deposit(value);
+        chargeCommission(buyer, commission, marketMaker);
 
-        fills.add(new Fill(FillKind.MINT, outcomes().get(arrivingOutcome).name(),
-                arrivingBuyer.name(), null, quantity, arrivingPrice, arrivingCommission));
-        fills.add(new Fill(FillKind.MINT, outcomes().get(restingOutcome).name(),
-                restingBuyer.name(), null, quantity, restingPrice, restingCommission));
+        outcomes().get(outcomeIndex).addShares(quantity);
+        addHolding(buyer.name(), outcomeIndex, quantity, value);
 
-        tally.bought(arrivingBuyer.name(), arrivingValue, arrivingCommission);
-        tally.bought(restingBuyer.name(), restingValue, restingCommission);
+        fills.add(new Fill(FillKind.MINT, outcomes().get(outcomeIndex).name(),
+                buyer.name(), null, quantity, price, commission));
+        tally.bought(buyer.name(), value, commission);
     }
 
     /**
@@ -325,8 +349,9 @@ public class OrderBookEvent extends Event {
             double net = gross - commission;
 
             account().withdraw(gross);
-            users.get(participant).receive(net);
-            payCommissionToMarketMaker(participant, commission, marketMaker);
+            User winner = users.get(participant);
+            winner.receive(gross, EntryKind.WINNINGS, name());
+            chargeCommission(winner, commission, marketMaker);
 
             payments.add(new Payment(participant, shares, gross, commission, net));
             grossTotal += gross;
