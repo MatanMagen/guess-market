@@ -12,6 +12,7 @@ GuessMarket.command
 # ships in the submission zip, not here
 packaging/readme.html
 packaging/readme.docx
+packaging/readme-ex2.html
 
 # course material
 course-materials/
