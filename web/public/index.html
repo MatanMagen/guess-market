@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Guess Market</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<section id="login" class="login" hidden>
+  <h1>Guess Market</h1>
+  <p>Choose a name to log in with</p>
+  <form id="login-form">
+    <input id="login-name" type="text" placeholder="Your name" autocomplete="off" autofocus>
+    <button type="submit">Log in</button>
+  </form>
+  <p id="login-error" class="error" role="alert"></p>
+  <p class="muted">Server: <span id="server-url"></span></p>
+</section>
+
+<section id="main" hidden>
+  <header class="topbar">
+    <span class="brand">Guess Market</span>
+    <span>Logged in as <b id="who"></b></span>
+    <span id="connection" class="error"></span>
+    <span class="spacer"></span>
+    <span id="balance" class="balance"></span>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-tab="events" role="tab">Events</button>
+    <button class="tab" data-tab="account" role="tab">Account</button>
+  </nav>
+
+  <div id="tab-events" class="tab-page split">
+    <div class="pane">
+      <div class="filters">
+        <div class="filter" data-filter="method"><span class="muted">Method:</span></div>
+        <div class="filter" data-filter="status"><span class="muted">Status:</span></div>
+        <div class="filter" data-filter="commissionType"><span class="muted">Commission:</span></div>
+      </div>
+      <div class="table-box tall"><table id="events-table"></table></div>
+    </div>
+    <div class="pane detail" id="events-detail"></div>
+  </div>
+
+  <div id="tab-account" class="tab-page split narrow-left" hidden>
+    <div class="pane">
+      <h3>Users</h3>
+      <div class="table-box tall"><table id="users-table"></table></div>
+    </div>
+    <div class="pane">
+      <div class="headline">
+        <h2 id="account-name"></h2>
+        <span id="blocked" class="error"></span>
+        <span class="spacer"></span>
+        <span id="account-balance" class="balance"></span>
+      </div>
+      <form id="funds-form" class="row">
+        <label for="funds-amount">Load money into your account:</label>
+        <input id="funds-amount" type="number" min="0.01" step="any" placeholder="Amount">
+        <button type="submit">Load funds</button>
+      </form>
+      <h3>Your account, newest line first</h3>
+      <div class="table-box"><table id="ledger-table"></table></div>
+      <h3>Events you run or take part in</h3>
+      <div class="table-box short"><table id="participations-table"></table></div>
+      <div id="involvement"></div>
+      <hr>
+      <div class="detail" id="account-detail"></div>
+    </div>
+  </div>
+</section>
+
+<dialog id="message">
+  <h3 id="message-title"></h3>
+  <pre id="message-text"></pre>
+  <form method="dialog"><button>OK</button></form>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>

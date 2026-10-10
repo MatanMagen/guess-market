@@ -13,6 +13,9 @@ GuessMarket.command
 packaging/readme.html
 packaging/readme.docx
 packaging/readme-ex2.html
+packaging/readme-ex4.html
+packaging/readme-ex4.docx
+package-ex4.sh
 
 # course material
 course-materials/
@@ -20,3 +23,7 @@ libs/
 Guess Market v3.docx
 
 .DS_Store
+
+# web client
+web/node_modules/
+web/package-lock.json

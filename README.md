@@ -11,7 +11,7 @@ Rolling project across four exercises. The engine is extended each time rather t
 | 1 | Console | done |
 | 2 | JavaFX, adds Order Book trading and multiple users | done, with bonus 4 |
 | 3 | Client / server: Tomcat war + JavaFX client over HTTP | done, with bonus 1 (chat) |
-| 4 | Web client (bonus) | not started |
+| 4 | Web client (bonus): plain HTML/JS over the same API | done |
 
 ## Build and run
 
@@ -33,9 +33,19 @@ GM_TOMCAT=/path/to/apache-tomcat-10.1.x ./servertest.sh   # HTTP suite against a
 GM_JAVAFX=/path/to/javafx-sdk-22.0.2/lib dist/client/run.sh
 ```
 
+## Web client (exercise 4)
+
+`web/` is a plain HTML, CSS and JavaScript page with a few dozen lines of Node (`server.js`, Node's own
+modules only) that serves it and passes `/guess-market/...` through to Tomcat, so the browser sees one
+address and Tomcat's session cookie works unchanged. With the war deployed:
+
+```
+cd web && node server.js      # or run.bat on Windows; then open http://localhost:3000
+```
+
 ## Modules
 
-Four modules; the dependencies run one way only:
+Four Java modules; the dependencies run one way only:
 
 ```
 client ──HTTP/JSON──> server ──> engine ──> dto

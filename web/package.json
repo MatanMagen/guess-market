@@ -1,0 +1,12 @@
+{
+  "name": "guess-market-web",
+  "version": "4.0.0",
+  "description": "Guess Market web client (exercise 4): runs against the exercise 3 server",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
