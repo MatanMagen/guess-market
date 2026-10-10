@@ -1,9 +1,11 @@
 package guessmarket.engine.impl;
 
+import guessmarket.dto.AccountEntry;
 import guessmarket.dto.CloseResult;
 import guessmarket.dto.CommissionPolicy;
 import guessmarket.dto.EventLifecycle;
 import guessmarket.dto.EventState;
+import guessmarket.dto.EntryKind;
 import guessmarket.dto.EventSummary;
 import guessmarket.dto.FillRecord;
 import guessmarket.dto.HoldingState;
@@ -30,14 +32,16 @@ import guessmarket.engine.exception.EventAlreadyStartedException;
 import guessmarket.engine.exception.EventNotActiveException;
 import guessmarket.engine.exception.InsufficientFundsException;
 import guessmarket.engine.exception.InsufficientSharesException;
+import guessmarket.engine.exception.InvalidAmountException;
 import guessmarket.engine.exception.InvalidEventException;
 import guessmarket.engine.exception.InvalidPriceException;
 import guessmarket.engine.exception.InvalidQuantityException;
-import guessmarket.engine.exception.NoFileLoadedException;
+import guessmarket.engine.exception.InvalidUserNameException;
 import guessmarket.engine.exception.NoSuchEventException;
 import guessmarket.engine.exception.NoSuchOutcomeException;
 import guessmarket.engine.exception.NoSuchUserException;
 import guessmarket.engine.exception.NotMarketMakerException;
+import guessmarket.engine.exception.UserAlreadyExistsException;
 import guessmarket.engine.exception.UserBlockedException;
 import guessmarket.engine.exception.WrongMarketMethodException;
 import guessmarket.engine.model.CommissionType;
@@ -57,13 +61,20 @@ import guessmarket.engine.model.Trade;
 import guessmarket.engine.model.User;
 import guessmarket.engine.xml.XmlEventLoader;
 
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
- * The engine. Holds at most one loaded file at a time, guards every request, and answers only in
- * dto records.
+ * The engine. Holds every user and every uploaded event for as long as the server runs, guards
+ * every request, and answers only in dto records.
+ * <p>
+ * Many users reach it at once through the server, so every public method is synchronized on the
+ * engine: one request at a time sees and changes the market.
+ * ponytail: one lock for the whole market; per-event locks if traffic ever makes it a bottleneck.
  * <p>
  * Nothing here formats anything for a human: a refused request comes back as an exception carrying
  * the numbers involved, and the front end decides what to say about it.
@@ -73,58 +84,77 @@ public class GuessMarketEngine implements Engine {
     private static final long MINIMUM_QUANTITY = 1L;
     private static final int MIN_COMMISSION_PERCENT = 0;
     private static final int MAX_COMMISSION_PERCENT = 90;
-    private static final int REQUIRED_OUTCOME_COUNT = 2;
+    private static final int MIN_OUTCOME_COUNT = 2;
 
     private final XmlEventLoader loader = new XmlEventLoader();
-    private MarketState state;
+    private final MarketState state = new MarketState();
 
     @Override
-    public LoadSummary loadFromFile(String path) {
-        MarketState loaded = loader.load(path);
-        state = loaded;
-        return new LoadSummary(loaded.sourceDescription(), loaded.events().size());
+    public synchronized void registerUser(String userName) {
+        String name = userName == null ? "" : userName.trim();
+        if (name.isEmpty()) {
+            throw new InvalidUserNameException();
+        }
+        if (state.user(name) != null) {
+            throw new UserAlreadyExistsException(name);
+        }
+        state.addUser(new User(name));
     }
 
     @Override
-    public boolean isLoaded() {
-        return state != null;
+    public synchronized UserDetails depositFunds(String userName, double amount) {
+        User user = requireUser(userName);
+        if (!(amount > 0) || Double.isInfinite(amount)) {
+            throw new InvalidAmountException(amount);
+        }
+        user.receive(amount, EntryKind.DEPOSIT, null);
+        return userDetails(user.name());
     }
 
     @Override
-    public String loadedSourceDescription() {
-        requireLoaded();
-        return state.sourceDescription();
+    public synchronized LoadSummary uploadEvents(InputStream xml, String fileName, String uploaderName) {
+        User uploader = requireActingUser(uploaderName);
+        List<Event> events = loader.load(xml, fileName, uploader.name(),
+                name -> state.eventByName(name) != null, state.nextEventId());
+        List<String> names = new ArrayList<>();
+        for (Event event : events) {
+            state.addEvent(event);
+            names.add(event.name());
+        }
+        return new LoadSummary(fileName == null ? "" : fileName.trim(), uploader.name(), names);
     }
 
     @Override
-    public List<UserSummary> listUsers() {
-        requireLoaded();
+    public synchronized List<UserSummary> listUsers() {
         List<UserSummary> summaries = new ArrayList<>();
         List<User> users = state.users();
         for (int i = 0; i < users.size(); i++) {
             User user = users.get(i);
             summaries.add(new UserSummary(i + 1, user.name(), user.balance(), user.isBlocked(),
-                    countParticipations(user.name())));
+                    countParticipations(user.name()), isMarketMakerOfAny(user.name())));
         }
         return summaries;
     }
 
     @Override
-    public UserDetails userDetails(String userName) {
-        requireLoaded();
+    public synchronized UserDetails userDetails(String userName) {
         User user = requireUser(userName);
         List<UserParticipation> participations = new ArrayList<>();
         for (Event event : state.events()) {
-            if (event.isParticipant(user.name())) {
+            if (involves(event, user.name())) {
                 participations.add(toParticipation(event, user.name()));
             }
         }
-        return new UserDetails(user.name(), user.balance(), user.isBlocked(), participations);
+        List<AccountEntry> ledger = new ArrayList<>();
+        for (User.Entry entry : user.ledger()) {
+            ledger.add(new AccountEntry(entry.number(), entry.timeMillis(), entry.kind(), entry.eventName(),
+                    entry.amount(), entry.balanceAfter()));
+        }
+        return new UserDetails(user.name(), user.balance(), user.isBlocked(), participations, ledger);
     }
 
     @Override
-    public List<EventSummary> listEvents() {
-        requireLoaded();
+    public synchronized List<EventSummary> listEvents() {
         List<EventSummary> summaries = new ArrayList<>();
         List<Event> events = state.events();
         for (int i = 0; i < events.size(); i++) {
@@ -134,14 +164,12 @@ public class GuessMarketEngine implements Engine {
     }
 
     @Override
-    public EventState eventState(int eventId) {
-        requireLoaded();
+    public synchronized EventState eventState(int eventId) {
         return toState(requireEvent(eventId));
     }
 
     @Override
-    public EventState createEvent(NewEvent request) {
-        requireLoaded();
+    public synchronized EventState createEvent(NewEvent request) {
         User creator = requireActingUser(request.creatorName());
 
         List<FileProblem> problems = checkNewEvent(request);
@@ -185,18 +213,17 @@ public class GuessMarketEngine implements Engine {
         }
 
         List<String> answers = trimmedAll(request.outcomeNames());
-        if (answers.size() != REQUIRED_OUTCOME_COUNT) {
+        if (answers.size() < MIN_OUTCOME_COUNT) {
             problems.add(FileProblem.ofFile(ProblemKind.WRONG_ANSWER_COUNT,
-                    String.valueOf(answers.size()), String.valueOf(REQUIRED_OUTCOME_COUNT)));
+                    String.valueOf(answers.size()), String.valueOf(MIN_OUTCOME_COUNT)));
         }
+        Set<String> seen = new HashSet<>();
         for (int i = 0; i < answers.size(); i++) {
             if (answers.get(i).isEmpty()) {
                 problems.add(FileProblem.ofFile(ProblemKind.BLANK_ANSWER, String.valueOf(i + 1)));
+            } else if (!seen.add(answers.get(i).toLowerCase())) {
+                problems.add(FileProblem.ofFile(ProblemKind.DUPLICATE_ANSWER, answers.get(i)));
             }
-        }
-        if (answers.size() == REQUIRED_OUTCOME_COUNT && !answers.get(0).isEmpty()
-                && answers.get(0).equalsIgnoreCase(answers.get(1))) {
-            problems.add(FileProblem.ofFile(ProblemKind.DUPLICATE_ANSWER, answers.get(0)));
         }
 
         if (request.method() == MarketMethod.LMSR) {
@@ -226,8 +253,7 @@ public class GuessMarketEngine implements Engine {
     }
 
     @Override
-    public EventState openEvent(int eventId, String userName) {
-        requireLoaded();
+    public synchronized EventState openEvent(int eventId, String userName) {
         Event event = requireEvent(eventId);
         User user = requireActingUser(userName);
         requireMarketMaker(event, user);
@@ -243,8 +269,7 @@ public class GuessMarketEngine implements Engine {
     }
 
     @Override
-    public CloseResult closeEvent(int eventId, String userName, int outcomeNumber) {
-        requireLoaded();
+    public synchronized CloseResult closeEvent(int eventId, String userName, int outcomeNumber) {
         Event event = requireEvent(eventId);
         User user = requireActingUser(userName);
         requireMarketMaker(event, user);
@@ -272,8 +297,7 @@ public class GuessMarketEngine implements Engine {
     }
 
     @Override
-    public double quoteLmsrPurchase(int eventId, int outcomeNumber, long quantity) {
-        requireLoaded();
+    public synchronized double quoteLmsrPurchase(int eventId, int outcomeNumber, long quantity) {
         LmsrEvent event = requireLmsr(requireEvent(eventId));
         int outcomeIndex = requireOutcome(event, outcomeNumber);
         requireQuantity(quantity);
@@ -281,8 +305,7 @@ public class GuessMarketEngine implements Engine {
     }
 
     @Override
-    public PurchaseResult buyLmsrShares(int eventId, String userName, int outcomeNumber, long quantity) {
-        requireLoaded();
+    public synchronized PurchaseResult buyLmsrShares(int eventId, String userName, int outcomeNumber, long quantity) {
         LmsrEvent event = requireLmsr(requireEvent(eventId));
         User user = requireActingUser(userName);
         requireActive(event);
@@ -301,9 +324,8 @@ public class GuessMarketEngine implements Engine {
     }
 
     @Override
-    public OrderResult submitOrder(int eventId, String userName, int outcomeNumber,
+    public synchronized OrderResult submitOrder(int eventId, String userName, int outcomeNumber,
                                    OrderSide side, long quantity, double price) {
-        requireLoaded();
         OrderBookEvent event = requireOrderBook(requireEvent(eventId));
         User user = requireActingUser(userName);
         requireActive(event);
@@ -340,12 +362,6 @@ public class GuessMarketEngine implements Engine {
     }
 
     // ---------- guards ----------
-
-    private void requireLoaded() {
-        if (state == null) {
-            throw new NoFileLoadedException();
-        }
-    }
 
     private User requireUser(String userName) {
         User user = userName == null ? null : state.user(userName.trim());
@@ -417,11 +433,25 @@ public class GuessMarketEngine implements Engine {
     private int countParticipations(String userName) {
         int count = 0;
         for (Event event : state.events()) {
-            if (event.isParticipant(userName)) {
+            if (involves(event, userName)) {
                 count++;
             }
         }
         return count;
+    }
+
+    /** A user's events are the ones he runs as well as the ones he has traded in. */
+    private boolean involves(Event event, String userName) {
+        return event.isParticipant(userName) || event.isMarketMaker(userName);
+    }
+
+    private boolean isMarketMakerOfAny(String userName) {
+        for (Event event : state.events()) {
+            if (event.isMarketMaker(userName)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private EventSummary toSummary(Event event, int displayNumber) {

@@ -30,8 +30,6 @@ import jakarta.xml.bind.annotation.XmlRegistry;
 @XmlRegistry
 public class ObjectFactory {
 
-    private static final QName _InitialCash_QNAME = new QName("", "initial-cash");
-    private static final QName _Id_QNAME = new QName("", "id");
     private static final QName _Description_QNAME = new QName("", "description");
     private static final QName _B_QNAME = new QName("", "b");
     private static final QName _GMOption_QNAME = new QName("", "GM-option");
@@ -41,16 +39,6 @@ public class ObjectFactory {
      * 
      */
     public ObjectFactory() {
-    }
-
-    /**
-     * Create an instance of {@link Event }
-     * 
-     * @return
-     *     the new instance of {@link Event }
-     */
-    public Event createEvent() {
-        return new Event();
     }
 
     /**
@@ -131,62 +119,6 @@ public class ObjectFactory {
      */
     public GMOrderBook createGMOrderBook() {
         return new GMOrderBook();
-    }
-
-    /**
-     * Create an instance of {@link GMUsers }
-     * 
-     * @return
-     *     the new instance of {@link GMUsers }
-     */
-    public GMUsers createGMUsers() {
-        return new GMUsers();
-    }
-
-    /**
-     * Create an instance of {@link GMUser }
-     * 
-     * @return
-     *     the new instance of {@link GMUser }
-     */
-    public GMUser createGMUser() {
-        return new GMUser();
-    }
-
-    /**
-     * Create an instance of {@link GMMarketMaker }
-     * 
-     * @return
-     *     the new instance of {@link GMMarketMaker }
-     */
-    public GMMarketMaker createGMMarketMaker() {
-        return new GMMarketMaker();
-    }
-
-    /**
-     * Create an instance of {@link JAXBElement }{@code <}{@link Integer }{@code >}
-     * 
-     * @param value
-     *     Java instance representing xml element's value.
-     * @return
-     *     the new instance of {@link JAXBElement }{@code <}{@link Integer }{@code >}
-     */
-    @XmlElementDecl(namespace = "", name = "initial-cash")
-    public JAXBElement<Integer> createInitialCash(Integer value) {
-        return new JAXBElement<>(_InitialCash_QNAME, Integer.class, null, value);
-    }
-
-    /**
-     * Create an instance of {@link JAXBElement }{@code <}{@link Integer }{@code >}
-     * 
-     * @param value
-     *     Java instance representing xml element's value.
-     * @return
-     *     the new instance of {@link JAXBElement }{@code <}{@link Integer }{@code >}
-     */
-    @XmlElementDecl(namespace = "", name = "id")
-    public JAXBElement<Integer> createId(Integer value) {
-        return new JAXBElement<>(_Id_QNAME, Integer.class, null, value);
     }
 
     /**

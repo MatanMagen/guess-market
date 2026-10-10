@@ -23,10 +23,9 @@ import jakarta.xml.bind.annotation.XmlType;
  * <complexType>
  *   <complexContent>
  *     <restriction base="{http://www.w3.org/2001/XMLSchema}anyType">
- *       <all>
+ *       <sequence>
  *         <element ref="{}GM-events"/>
- *         <element ref="{}GM-users"/>
- *       </all>
+ *       </sequence>
  *     </restriction>
  *   </complexContent>
  * </complexType>
@@ -36,15 +35,13 @@ import jakarta.xml.bind.annotation.XmlType;
  */
 @XmlAccessorType(XmlAccessType.FIELD)
 @XmlType(name = "", propOrder = {
-
+    "gmEvents"
 })
 @XmlRootElement(name = "Guess-Market")
 public class GuessMarket {
 
     @XmlElement(name = "GM-events", required = true)
     protected GMEvents gmEvents;
-    @XmlElement(name = "GM-users", required = true)
-    protected GMUsers gmUsers;
 
     /**
      * Gets the value of the gmEvents property.
@@ -68,30 +65,6 @@ public class GuessMarket {
      */
     public void setGMEvents(GMEvents value) {
         this.gmEvents = value;
-    }
-
-    /**
-     * Gets the value of the gmUsers property.
-     * 
-     * @return
-     *     possible object is
-     *     {@link GMUsers }
-     *     
-     */
-    public GMUsers getGMUsers() {
-        return gmUsers;
-    }
-
-    /**
-     * Sets the value of the gmUsers property.
-     * 
-     * @param value
-     *     allowed object is
-     *     {@link GMUsers }
-     *     
-     */
-    public void setGMUsers(GMUsers value) {
-        this.gmUsers = value;
     }
 
 }

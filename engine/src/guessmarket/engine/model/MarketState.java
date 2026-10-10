@@ -8,30 +8,16 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Everything loaded from one file: its events and its users. Built in full before the engine takes
- * it, which is what keeps a rejected file from disturbing the state already in memory.
+ * Everything the server holds: every user who has logged in and every event uploaded so far.
+ * Uploads accumulate rather than replace each other, and nothing outlives the server.
  */
 public class MarketState implements Serializable {
 
-    private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 2L;
 
-    private final String sourceDescription;
     /** ArrayList and LinkedHashMap rather than the interfaces so the fields are provably serializable. */
-    private final ArrayList<Event> events;
-    private final LinkedHashMap<String, User> users;
-
-    public MarketState(String sourceDescription, List<Event> events, List<User> users) {
-        this.sourceDescription = sourceDescription;
-        this.events = new ArrayList<>(events);
-        this.users = new LinkedHashMap<>();
-        for (User user : users) {
-            this.users.put(user.name(), user);
-        }
-    }
-
-    public String sourceDescription() {
-        return sourceDescription;
-    }
+    private final ArrayList<Event> events = new ArrayList<>();
+    private final LinkedHashMap<String, User> users = new LinkedHashMap<>();
 
     public List<Event> events() {
         return Collections.unmodifiableList(events);
@@ -41,7 +27,7 @@ public class MarketState implements Serializable {
         return List.copyOf(users.values());
     }
 
-    /** Keyed by name, which the loader has already proved unique. */
+    /** Keyed by name, which registration has already proved unique. */
     public Map<String, User> usersByName() {
         return Collections.unmodifiableMap(users);
     }
@@ -50,12 +36,15 @@ public class MarketState implements Serializable {
         return users.get(name);
     }
 
-    /** Adds an event somebody built by hand. Everything else about it works exactly as if it had been loaded. */
+    public void addUser(User user) {
+        users.put(user.name(), user);
+    }
+
     public void addEvent(Event event) {
         events.add(event);
     }
 
-    /** One past the highest number in use, so a new event cannot collide with a loaded one. */
+    /** One past the highest number in use, so a new event cannot collide with an existing one. */
     public int nextEventId() {
         int highest = 0;
         for (Event event : events) {
@@ -73,7 +62,7 @@ public class MarketState implements Serializable {
         return null;
     }
 
-    /** Exercise 3 keys events by name instead of by number, so both lookups exist from the start. */
+    /** Names are what tell events apart since exercise 3, and they are compared exactly. */
     public Event eventByName(String name) {
         for (Event event : events) {
             if (event.name().equals(name)) {
@@ -81,15 +70,5 @@ public class MarketState implements Serializable {
             }
         }
         return null;
-    }
-
-    public List<Event> activeEvents() {
-        List<Event> active = new ArrayList<>();
-        for (Event event : events) {
-            if (event.status() == EventStatus.ACTIVE) {
-                active.add(event);
-            }
-        }
-        return active;
     }
 }

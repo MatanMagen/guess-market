@@ -1,6 +1,6 @@
 package guessmarket.engine.exception;
 
-/** An event number was named that the loaded file does not define. */
+/** An event number was named that no uploaded event carries. */
 public class NoSuchEventException extends GuessMarketException {
 
     private static final long serialVersionUID = 1L;
