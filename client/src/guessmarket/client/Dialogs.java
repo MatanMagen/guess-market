@@ -1,6 +1,5 @@
-package guessmarket.ui;
+package guessmarket.client;
 
-import guessmarket.engine.exception.GuessMarketException;
 import javafx.scene.control.Alert;
 import javafx.scene.control.TextArea;
 import javafx.stage.Window;
@@ -12,10 +11,6 @@ public final class Dialogs {
     private static final int LONG_MESSAGE = 160;
 
     private Dialogs() {
-    }
-
-    public static void failure(Window owner, String title, GuessMarketException failure) {
-        show(owner, Alert.AlertType.ERROR, title, Messages.describe(failure));
     }
 
     public static void failure(Window owner, String title, String message) {

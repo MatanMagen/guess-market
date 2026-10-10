@@ -1,4 +1,4 @@
-package guessmarket.ui;
+package guessmarket.client;
 
 import guessmarket.dto.EventLifecycle;
 import guessmarket.dto.EventState;
@@ -15,7 +15,6 @@ import guessmarket.dto.OutcomeState;
 import guessmarket.dto.ParticipantState;
 import guessmarket.dto.PurchaseResult;
 import guessmarket.dto.TradeRecord;
-import guessmarket.engine.exception.GuessMarketException;
 import javafx.collections.FXCollections;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -44,8 +43,12 @@ import java.util.Locale;
  * One event in full, and the controls to act on it.
  * <p>
  * Used by both screens: the events screen shows it for whatever event is selected there, and the
- * user screen shows it for the event a user has drilled into. What it offers depends on who is
- * acting — only the market maker is given the open and close buttons.
+ * account screen shows it for the event a user has drilled into. What it offers depends on who is
+ * logged in — only the event's market maker is given the start and close buttons.
+ * <p>
+ * It keeps itself fresh: the event shown is fetched every half second, and the pane is redrawn only
+ * when something in it actually changed. The trading controls are rebuilt only when the event moves
+ * to another stage, so whatever the user is typing into them survives the refreshes.
  */
 public final class EventDetailPane extends VBox {
 
@@ -55,7 +58,13 @@ public final class EventDetailPane extends VBox {
     private final ScrollPane scroller = new ScrollPane();
     private final VBox body = new VBox(12);
 
+    /** Read by the poller thread, so it is volatile. */
+    private volatile Integer shownId;
     private EventState state;
+    private Node actions;
+    private EventLifecycle actionsBuiltFor;
+    /** Prices move when others trade, so an LMSR quote on screen is asked for again on every change. */
+    private Runnable requoteOnChange = () -> { };
 
     public EventDetailPane(AppContext context) {
         this.context = context;
@@ -66,35 +75,45 @@ public final class EventDetailPane extends VBox {
         VBox.setVgrow(scroller, Priority.ALWAYS);
         getChildren().add(scroller);
         showNothing();
+        context.poll(() -> {
+            Integer id = shownId;
+            return id == null ? null : context.server().event(id);
+        }, this::update);
     }
 
     public void showNothing() {
+        shownId = null;
         state = null;
+        actions = null;
+        requoteOnChange = () -> { };
         body.getChildren().setAll(hint("Select an event to see its details."));
     }
 
     public void show(int eventId) {
-        try {
-            state = context.engine().eventState(eventId);
-        } catch (GuessMarketException failure) {
-            showNothing();
+        if (shownId != null && shownId == eventId) {
             return;
         }
-        rebuild();
+        shownId = eventId;
+        state = null;
+        actions = null;
+        requoteOnChange = () -> { };
+        body.getChildren().setAll(hint("Loading the event..."));
+        context.refreshNow();
     }
 
-    /** Redraws whatever is already on screen, after something changed it. */
-    public void refresh() {
-        if (state != null) {
-            show(state.summary().id());
+    private void update(EventState fresh) {
+        Integer id = shownId;
+        if (fresh == null || id == null || fresh.summary().id() != id || fresh.equals(state)) {
+            return;
         }
-    }
-
-    public Integer shownEventId() {
-        return state == null ? null : state.summary().id();
-    }
-
-    private void rebuild() {
+        state = fresh;
+        if (actions == null || actionsBuiltFor != fresh.summary().status()) {
+            requoteOnChange = () -> { };
+            actions = actionsSection();
+            actionsBuiltFor = fresh.summary().status();
+        } else {
+            requoteOnChange.run();
+        }
         body.getChildren().setAll(header(), new Separator());
         if (state.summary().method() == MarketMethod.LMSR) {
             body.getChildren().add(lmsrSection(state.lmsr()));
@@ -104,7 +123,7 @@ public final class EventDetailPane extends VBox {
         body.getChildren().add(new Separator());
         body.getChildren().add(participantsSection());
         body.getChildren().add(new Separator());
-        body.getChildren().add(actionsSection());
+        body.getChildren().add(actions);
     }
 
     private Node header() {
@@ -257,14 +276,9 @@ public final class EventDetailPane extends VBox {
 
     private Node actionsSection() {
         VBox box = new VBox(10);
-        String actor = context.actingUser();
-        if (actor == null) {
-            box.getChildren().add(hint("Choose who you are acting as to trade."));
-            return box;
-        }
-        box.getChildren().add(sectionTitle("Acting as " + actor));
+        box.getChildren().add(sectionTitle("Acting as " + context.userName()));
 
-        if (state.summary().marketMakerName().equals(actor)) {
+        if (state.summary().marketMakerName().equals(context.userName())) {
             box.getChildren().add(marketMakerControls());
         }
         if (state.summary().status() == EventLifecycle.ACTIVE) {
@@ -273,7 +287,7 @@ public final class EventDetailPane extends VBox {
                     : orderControls());
         } else {
             box.getChildren().add(hint(state.summary().status() == EventLifecycle.NOT_STARTED
-                    ? "The event has not been started, so it cannot be traded."
+                    ? "The event has not been started by its market maker, so it cannot be traded yet."
                     : "The event is closed."));
         }
         return box;
@@ -283,12 +297,11 @@ public final class EventDetailPane extends VBox {
         HBox row = new HBox(8);
         row.setAlignment(Pos.CENTER_LEFT);
 
+        int eventId = state.summary().id();
         Button open = new Button("Start event");
         open.setDisable(state.summary().status() != EventLifecycle.NOT_STARTED);
-        open.setOnAction(e -> run(() -> {
-            context.engine().openEvent(state.summary().id(), context.actingUser());
-            context.refreshAll();
-        }));
+        open.setOnAction(e -> context.run(getScene().getWindow(), "Start event",
+                () -> context.server().open(eventId), started -> { }));
 
         ComboBox<String> winner = new ComboBox<>(
                 FXCollections.observableArrayList(state.summary().outcomeNames()));
@@ -301,13 +314,12 @@ public final class EventDetailPane extends VBox {
                 Dialogs.failure(getScene().getWindow(), "Close event", "Choose the winning answer first.");
                 return;
             }
-            run(() -> {
-                var result = context.engine().closeEvent(state.summary().id(), context.actingUser(), chosen + 1);
-                context.refreshAll();
-                Dialogs.note(getScene().getWindow(), "Event closed", closeSummary(result.winningOutcomeName(),
-                        result.winningShares(), result.netPaidToWinners(),
-                        result.commissionCharged(), result.subsidyReturned()));
-            });
+            context.run(getScene().getWindow(), "Close event",
+                    () -> context.server().close(eventId, chosen + 1),
+                    result -> Dialogs.note(getScene().getWindow(), "Event closed",
+                            closeSummary(result.winningOutcomeName(), result.winningShares(),
+                                    result.netPaidToWinners(), result.commissionCharged(),
+                                    result.subsidyReturned())));
         });
 
         row.getChildren().add(open);
@@ -330,7 +342,10 @@ public final class EventDetailPane extends VBox {
     }
 
     private Node lmsrTradeControls() {
-        HBox row = new HBox(8);
+        int eventId = state.summary().id();
+        boolean onPurchase = state.summary().commissionType() == guessmarket.dto.CommissionPolicy.ON_PURCHASE;
+        int commissionPercent = state.summary().commissionPercent();
+        FlowPane row = new FlowPane(8, 8);
         row.setAlignment(Pos.CENTER_LEFT);
         ComboBox<String> answer = new ComboBox<>(
                 FXCollections.observableArrayList(state.summary().outcomeNames()));
@@ -346,34 +361,30 @@ public final class EventDetailPane extends VBox {
                 quote.setText("");
                 return;
             }
-            try {
-                double cost = context.engine().quoteLmsrPurchase(
-                        state.summary().id(), index + 1, quantity.getValue());
-                double commission = cost * state.summary().commissionPercent() / 100.0d;
-                quote.setText(state.summary().commissionType() == guessmarket.dto.CommissionPolicy.ON_PURCHASE
+            long shares = quantity.getValue();
+            context.fetch(() -> context.server().quote(eventId, index + 1, shares), cost -> {
+                double commission = cost * commissionPercent / 100.0d;
+                quote.setText(onPurchase
                         ? "Costs " + Format.money(cost) + " plus " + Format.money(commission) + " commission"
                         : "Costs " + Format.money(cost));
-            } catch (GuessMarketException failure) {
-                quote.setText("");
-            }
+            });
         };
+        requoteOnChange = requote;
         answer.valueProperty().addListener((observable, was, now) -> requote.run());
         quantity.valueProperty().addListener((observable, was, now) -> requote.run());
         requote.run();
 
         Button buy = new Button("Buy");
-        buy.setOnAction(e -> run(() -> {
-            PurchaseResult result = context.engine().buyLmsrShares(state.summary().id(),
-                    context.actingUser(), answer.getSelectionModel().getSelectedIndex() + 1,
-                    quantity.getValue());
-            context.refreshAll();
-            Dialogs.note(getScene().getWindow(), "Shares bought",
-                    "Bought " + Format.quantity(result.quantity()) + " of " + result.outcomeName()
-                            + " for " + Format.money(result.sharesCost())
-                            + (result.commissionCharged()
-                                    ? " plus " + Format.money(result.commissionPaid()) + " commission" : "")
-                            + ".\nTotal paid: " + Format.money(result.totalPaid()) + ".");
-        }));
+        buy.setOnAction(e -> {
+            int outcome = answer.getSelectionModel().getSelectedIndex() + 1;
+            long shares = quantity.getValue();
+            context.run(getScene().getWindow(), "Buy shares",
+                    () -> context.server().buy(eventId, outcome, shares),
+                    result -> {
+                        requote.run();
+                        Dialogs.note(getScene().getWindow(), "Shares bought", purchaseSummary(result));
+                    });
+        });
 
         row.getChildren().add(new Label("Answer"));
         row.getChildren().add(answer);
@@ -384,9 +395,18 @@ public final class EventDetailPane extends VBox {
         return row;
     }
 
+    private static String purchaseSummary(PurchaseResult result) {
+        return "Bought " + Format.quantity(result.quantity()) + " of " + result.outcomeName()
+                + " for " + Format.money(result.sharesCost())
+                + (result.commissionCharged()
+                        ? " plus " + Format.money(result.commissionPaid()) + " commission" : "")
+                + ".\nTotal paid: " + Format.money(result.totalPaid()) + ".";
+    }
+
     private Node orderControls() {
+        int eventId = state.summary().id();
         OrderBookDetails details = state.orderBook();
-        HBox row = new HBox(8);
+        FlowPane row = new FlowPane(8, 8);
         row.setAlignment(Pos.CENTER_LEFT);
 
         ComboBox<String> answer = new ComboBox<>(
@@ -413,13 +433,12 @@ public final class EventDetailPane extends VBox {
                         "'" + price.getText() + "' is not a price.");
                 return;
             }
-            run(() -> {
-                OrderResult result = context.engine().submitOrder(state.summary().id(),
-                        context.actingUser(), answer.getSelectionModel().getSelectedIndex() + 1,
-                        side.getValue(), quantity.getValue(), asked);
-                context.refreshAll();
-                Dialogs.note(getScene().getWindow(), "Order submitted", orderSummary(result));
-            });
+            int outcome = answer.getSelectionModel().getSelectedIndex() + 1;
+            OrderSide chosenSide = side.getValue();
+            long shares = quantity.getValue();
+            context.run(getScene().getWindow(), "Submit order",
+                    () -> context.server().order(eventId, outcome, chosenSide, shares, asked),
+                    result -> Dialogs.note(getScene().getWindow(), "Order submitted", orderSummary(result)));
         });
 
         row.getChildren().add(new Label("Answer"));
@@ -473,15 +492,6 @@ public final class EventDetailPane extends VBox {
             text.append("\nReceived ").append(Format.money(result.cashReceived())).append(".");
         }
         return text.toString();
-    }
-
-    /** One catch site covers every action, because they all fail the same way. */
-    private void run(Runnable action) {
-        try {
-            action.run();
-        } catch (GuessMarketException failure) {
-            Dialogs.failure(getScene().getWindow(), "Cannot do that", failure);
-        }
     }
 
     // ---------- small pieces ----------

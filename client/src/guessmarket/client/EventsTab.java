@@ -1,17 +1,14 @@
-package guessmarket.ui;
+package guessmarket.client;
 
 import guessmarket.dto.CommissionPolicy;
 import guessmarket.dto.EventLifecycle;
 import guessmarket.dto.EventSummary;
 import guessmarket.dto.MarketMethod;
-import guessmarket.dto.NewEvent;
-import guessmarket.engine.exception.GuessMarketException;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
-import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.TableView;
@@ -32,13 +29,13 @@ import java.util.function.Function;
  * whichever one is selected.
  * <p>
  * The filters are toggle buttons rather than check boxes so that "all of them" is one click on a
- * button that is already there, and filtering happens here rather than in the engine: the engine
- * hands over every event and the screen decides what to draw.
+ * button that is already there, and filtering happens here rather than on the server: the server
+ * hands over every event and the screen decides what to draw. The list is pulled every half
+ * second, so events another user uploads, starts or closes show up on their own.
  */
 public final class EventsTab extends SplitPane {
 
-    private final AppContext context;
-    private final TableView<EventSummary> table = Tables.table("No file is loaded.");
+    private final TableView<EventSummary> table = Tables.table("No events yet. Upload a file from the Account screen.");
     private final ObservableList<EventSummary> shown = FXCollections.observableArrayList();
     private final EventDetailPane detail;
 
@@ -50,9 +47,9 @@ public final class EventsTab extends SplitPane {
             new FilterGroup<>("Commission", List.of(CommissionPolicy.values()), Format::commission);
 
     private List<EventSummary> all = List.of();
+    private boolean refilling;
 
     public EventsTab(AppContext context) {
-        this.context = context;
         this.detail = new EventDetailPane(context);
 
         table.getColumns().add(Tables.column("Event", 200, EventSummary::name));
@@ -61,10 +58,15 @@ public final class EventsTab extends SplitPane {
         table.getColumns().add(Tables.column("Commission", 130,
                 e -> e.commissionPercent() + "% " + Format.commission(e.commissionType())));
         table.getColumns().add(Tables.numberColumn("Account", 110, e -> Format.money(e.accountBalance())));
+        table.getColumns().add(Tables.column("Market maker", 120, EventSummary::marketMakerName));
         table.setItems(shown);
+        table.setMinHeight(160);
         VBox.setVgrow(table, Priority.ALWAYS);
 
         table.getSelectionModel().selectedItemProperty().addListener((observable, was, now) -> {
+            if (refilling) {
+                return;
+            }
             if (now == null) {
                 detail.showNothing();
             } else {
@@ -80,43 +82,14 @@ public final class EventsTab extends SplitPane {
         VBox left = new VBox(8);
         left.setPadding(new Insets(10));
         left.getChildren().add(filterLine());
-        left.getChildren().add(newEventButton());
         left.getChildren().add(table);
         left.setMinWidth(320);
 
         getItems().add(left);
         getItems().add(detail);
         setDividerPositions(0.46);
-    }
 
-    /** Bonus: anybody can bring an event into being and becomes its market maker. */
-    private Node newEventButton() {
-        Button create = new Button("New event...");
-        create.setOnAction(event -> {
-            String creator = context.actingUser();
-            if (creator == null) {
-                Dialogs.failure(getScene().getWindow(), "New event",
-                        "Choose who you are acting as first: he will be its market maker.");
-                return;
-            }
-            new NewEventDialog(getScene().getWindow(), creator).showAndWait().ifPresent(this::create);
-        });
-        return create;
-    }
-
-    private void create(NewEvent request) {
-        try {
-            int id = context.engine().createEvent(request).summary().id();
-            context.refreshAll();
-            for (EventSummary summary : shown) {
-                if (summary.id() == id) {
-                    table.getSelectionModel().select(summary);
-                    break;
-                }
-            }
-        } catch (GuessMarketException failure) {
-            Dialogs.failure(getScene().getWindow(), "New event", failure);
-        }
+        context.poll(() -> context.server().events(), this::show);
     }
 
     private Node filterLine() {
@@ -128,21 +101,9 @@ public final class EventsTab extends SplitPane {
         return line;
     }
 
-    /** Rereads everything from the engine, keeping the selected event selected if it is still there. */
-    public void refresh() {
-        Integer selected = table.getSelectionModel().getSelectedItem() == null
-                ? null : table.getSelectionModel().getSelectedItem().id();
-        all = context.engine().isLoaded() ? context.engine().listEvents() : List.of();
+    private void show(List<EventSummary> events) {
+        all = events;
         applyFilters();
-        if (selected != null) {
-            for (EventSummary summary : shown) {
-                if (summary.id() == selected) {
-                    table.getSelectionModel().select(summary);
-                    break;
-                }
-            }
-        }
-        detail.refresh();
     }
 
     private void applyFilters() {
@@ -154,10 +115,14 @@ public final class EventsTab extends SplitPane {
                 kept.add(summary);
             }
         }
-        EventSummary selected = table.getSelectionModel().getSelectedItem();
-        shown.setAll(kept);
-        if (selected != null && kept.contains(selected)) {
-            table.getSelectionModel().select(selected);
+        refilling = true;
+        try {
+            Tables.refill(table, kept, EventSummary::id);
+        } finally {
+            refilling = false;
+        }
+        if (table.getSelectionModel().getSelectedItem() == null) {
+            detail.showNothing();
         }
     }
 
